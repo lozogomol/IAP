@@ -1,0 +1,27 @@
+# Secretos: NUNCA subir (-10 puntos)
+.env
+*.env
+!.env.example
+
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/
+env/
+
+# Django
+web/db.sqlite3
+web/staticfiles/
+web/media/
+
+# Modelos y datos pesados
+*.pt
+datasets/
+runs/
+
+# Editor / sistema
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

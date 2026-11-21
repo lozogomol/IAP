@@ -24,6 +24,8 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "rest_framework",
+    "drf_spectacular",
     "peaje",
 ]
 
@@ -47,6 +49,7 @@ TEMPLATES = [{
         "django.template.context_processors.request",
         "django.contrib.auth.context_processors.auth",
         "django.contrib.messages.context_processors.messages",
+        "peaje.auth.usuario_actual",
     ]},
 }]
 WSGI_APPLICATION = "config.wsgi.application"
@@ -82,3 +85,27 @@ if not DEBUG:
 # Endpoint de inferencia (RunPod o Colab): cambiar de proveedor = cambiar solo esta variable
 INFERENCE_URL = os.environ.get("INFERENCE_URL", "")
 INFERENCE_TOKEN = os.environ.get("INFERENCE_TOKEN", "")
+
+# --- Inicio de sesión exclusivamente con Google (lista blanca en la tabla usuarios) ---
+GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
+# Sin esto el popup de Google Identity Services no puede comunicarse con la página y el login falla.
+SECURE_CROSS_ORIGIN_OPENER_POLICY = "same-origin-allow-popups"
+LOGIN_URL = "/login"
+
+# JWT propio para la app móvil (firmado con HS256)
+JWT_SECRET = os.environ.get("JWT_SECRET", SECRET_KEY)
+JWT_HORAS = int(os.environ.get("JWT_HORAS", "12"))
+
+REST_FRAMEWORK = {
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+    "DEFAULT_AUTHENTICATION_CLASSES": ["peaje.auth.JWTAutenticacion"],
+    # Todo exige autenticación; las rutas públicas usan @permission_classes([AllowAny]).
+    "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],
+    "UNAUTHENTICATED_USER": None,
+}
+SPECTACULAR_SETTINGS = {
+    "TITLE": "IAP - API del peaje",
+    "DESCRIPTION": "API para la app móvil. Autenticación: Authorization: Bearer <JWT>.",
+    "VERSION": "1.0.0",
+    "SERVE_INCLUDE_SCHEMA": False,
+}

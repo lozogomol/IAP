@@ -1,0 +1,32 @@
+{% extends "peaje/base.html" %}
+{% block titulo %}Estado{% endblock %}
+{% block head %}
+<style>
+  .filas { display: grid; gap: .75rem; }
+  .fila { display: flex; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+  .ok { color: var(--ok); font-weight: 600; }
+  .mal { color: var(--peligro); font-weight: 600; }
+  .aviso { color: #fbbf24; font-weight: 600; }
+  pre { background: var(--fondo); border: 1px solid var(--borde); border-radius: 6px; padding: .75rem;
+        overflow-x: auto; font-size: .85rem; margin: 0; }
+</style>
+{% endblock %}
+{% block contenido %}
+<h1>Estado del sistema</h1>
+<div class="tarjeta filas">
+  <div class="fila"><span>Servidor web</span><span class="ok">{{ datos.web }}</span></div>
+  <div class="fila">
+    <span>Endpoint de inferencia</span>
+    <span class="{% if datos.inferencia == 'ok' %}ok{% elif datos.inferencia == 'caida' %}mal{% else %}aviso{% endif %}">
+      {{ datos.inferencia }}</span>
+  </div>
+  {% if datos.latencia_ms %}
+  <div class="fila"><span>Latencia</span><span>{{ datos.latencia_ms }} ms</span></div>
+  {% endif %}
+  {% if datos.error %}
+  <div class="fila"><span>Error</span><span class="tenue">{{ datos.error }}</span></div>
+  {% endif %}
+  {% if detalle_json %}<pre>{{ detalle_json }}</pre>{% endif %}
+</div>
+<p class="tenue" style="font-size:.85rem">JSON: <a href="/estado?format=json">/estado?format=json</a></p>
+{% endblock %}

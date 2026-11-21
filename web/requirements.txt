@@ -4,3 +4,8 @@ whitenoise==6.8.2
 dj-database-url==2.3.0
 psycopg[binary]==3.2.3
 python-dotenv==1.0.1
+google-auth==2.63.0
+requests==2.34.2
+PyJWT==2.15.1
+djangorestframework==3.16.1
+drf-spectacular==0.30.0

@@ -1,0 +1,63 @@
+{% extends "peaje/base.html" %}
+{% block titulo %}Iniciar sesión{% endblock %}
+{% block cabecera %}{% endblock %}
+{% block head %}
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<style>
+  main { min-height: 100vh; display: grid; place-items: center; }
+  .login { max-width: 380px; width: 100%; text-align: center; }
+  .login h1 { margin-bottom: .25rem; }
+  #google-btn { display: flex; justify-content: center; margin: 1.5rem 0 .5rem; min-height: 44px; }
+  #mensaje { min-height: 1.5em; color: var(--peligro); font-size: .9rem; }
+</style>
+{% endblock %}
+{% block contenido %}
+<div class="tarjeta login">
+  <h1>Peaje IAP</h1>
+  <p class="tenue">Sistema Inteligente de Control de Peaje</p>
+  {% if google_client_id %}
+    <div id="g_id_onload"
+         data-client_id="{{ google_client_id }}"
+         data-callback="alIniciarConGoogle"
+         data-auto_prompt="false"></div>
+    <div id="google-btn">
+      <div class="g_id_signin" data-type="standard" data-theme="filled_black" data-size="large"
+           data-text="signin_with" data-shape="pill" data-locale="es"></div>
+    </div>
+  {% else %}
+    <p id="google-btn" class="tenue">Falta configurar GOOGLE_CLIENT_ID.</p>
+  {% endif %}
+  <p id="mensaje" role="alert"></p>
+  <p class="tenue" style="font-size:.85rem">Solo cuentas de Google autorizadas.</p>
+  <p><a href="/estado">Ver estado del sistema</a></p>
+</div>
+{% csrf_token %}
+{% endblock %}
+{% block scripts %}
+{{ next|json_script:"next-url" }}
+<script>
+  function csrf() {
+    var el = document.querySelector("[name=csrfmiddlewaretoken]");
+    return el ? el.value : "";
+  }
+  function alIniciarConGoogle(respuesta) {
+    var msg = document.getElementById("mensaje");
+    msg.textContent = "Verificando…";
+    fetch("/auth/google/web", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json", "X-CSRFToken": csrf() },
+      body: JSON.stringify({ credential: respuesta.credential,
+                             next: JSON.parse(document.getElementById("next-url").textContent) })
+    })
+      .then(function (r) { return r.json().catch(function () { return {}; }).then(function (d) { return [r, d]; }); })
+      .then(function (par) {
+        var r = par[0], d = par[1];
+        if (r.ok && d.ok) { window.location.href = d.redirect || "/"; return; }
+        if (r.status === 403) { window.location.href = d.redirect || "/acceso-denegado"; return; }
+        msg.textContent = d.error || "No se pudo iniciar sesión. Intenta de nuevo.";
+      })
+      .catch(function () { msg.textContent = "Error de red. Intenta de nuevo."; });
+  }
+</script>
+{% endblock %}

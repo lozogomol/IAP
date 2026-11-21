@@ -1,0 +1,11 @@
+{% extends "peaje/base.html" %}
+{% block titulo %}Acceso denegado{% endblock %}
+{% block contenido %}
+<div class="tarjeta" style="max-width:520px;margin:2rem auto;text-align:center">
+  <h1 style="color:var(--peligro)">Acceso denegado</h1>
+  <p>Acceso denegado: tu cuenta de Google no está autorizada en IAP.</p>
+  {% if email %}<p class="tenue">Cuenta rechazada: <strong>{{ email }}</strong></p>{% endif %}
+  <p class="tenue" style="font-size:.9rem">Si necesitas acceso, pide a un administrador que agregue tu correo.</p>
+  <p><a class="boton" href="/login">Probar con otra cuenta</a></p>
+</div>
+{% endblock %}

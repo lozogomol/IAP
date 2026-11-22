@@ -1,0 +1,9 @@
+# Servidor de inferencia IAP (probado con Python 3.12/3.13)
+fastapi>=0.115
+uvicorn>=0.30
+python-multipart>=0.0.12
+onnxruntime>=1.19
+fast-plate-ocr>=1.0,<2
+numpy>=1.26
+# En Colab ya viene opencv-python; en un servidor sin pantalla usa la versión headless:
+opencv-python-headless>=4.9

@@ -14,6 +14,15 @@ CARPETA = Path(__file__).parent / "modelo"
 MODELO = CARPETA / "yolo-v9-t-384-license-plates-end2end.onnx"
 LADO = 384
 FORMATO_BOLIVIA = re.compile(r"^\d{3,4}[A-Z]{3}$")
+_SESION = None
+
+
+def sesion():
+    """Sesión ONNX del detector, creada una sola vez (crearla en cada imagen cuesta cientos de ms)."""
+    global _SESION
+    if _SESION is None:
+        _SESION = ort.InferenceSession(str(MODELO), providers=["CPUExecutionProvider"])
+    return _SESION
 
 
 def leer_imagen(ruta):
@@ -36,8 +45,8 @@ def detectar(imagen, umbral=0.4):
     )
     entrada = (lienzo[:, :, ::-1].transpose(2, 0, 1) / 255.0).astype(np.float32)[None]
 
-    sesion = ort.InferenceSession(str(MODELO), providers=["CPUExecutionProvider"])
-    salida = sesion.run(None, {sesion.get_inputs()[0].name: entrada})[0]
+    s = sesion()
+    salida = s.run(None, {s.get_inputs()[0].name: entrada})[0]
 
     cajas = []
     for _, x1, y1, x2, y2, _, confianza in salida:

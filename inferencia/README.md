@@ -2,6 +2,21 @@
 
 Endpoint único que servirá los 3 modelos (RunPod).
 
+## servidor — API FastAPI (`servidor/app.py`)
+
+- `GET /salud` — estado y modelos cargados (público).
+- `POST /inferir` — multipart `imagen` + cabecera `X-API-Token` →
+  `{"placas": [{"texto", "formato_bolivia", "confianza_deteccion", "confianza_lectura", "caja"}], "categoria": null, "ejes": null, "milisegundos"}`.
+  `?anotada=true` añade la imagen con las cajas. `categoria`/`ejes` quedan en `null` hasta M2/M3.
+- Variables: `IAP_TOKEN` (obligatoria; en Render es `INFERENCE_TOKEN`), `IAP_MAX_MB` (6), `IAP_UMBRAL` (0.4).
+- Local: `cd inferencia/servidor && pip install -r requirements.txt && IAP_TOKEN=... uvicorn app:app --port 8000`
+- Tests: `cd inferencia/servidor && python -m unittest -v test_app`
+
+## colab_servidor_iap.ipynb — servidor en Colab + ngrok
+
+Abre el notebook en Colab, crea los secretos `NGROK_AUTHTOKEN` e `IAP_TOKEN` (opcional `NGROK_DOMINIO` para una URL fija)
+y ejecuta todo. Imprime la URL pública para poner en Render como `INFERENCE_URL`.
+
 ## m1_placas — Modelo M1: detección de placas + OCR
 
 Reutilizado del proyecto anterior (placas-web).

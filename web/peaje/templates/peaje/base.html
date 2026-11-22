@@ -1,212 +1,44 @@
-<!DOCTYPE html>
+{% load static iconos %}<!DOCTYPE html>
 <html lang="es">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#0b1d51">
+  <meta name="theme-color" content="#1a0508">
   <title>{% block titulo %}Peaje IAP{% endblock %} · Peaje IAP</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <style>
-    :root {
-      --fondo: #ffffff; --texto: #0f172a; --tenue: #475569; --borde: #e2e8f0; --borde-fuerte: #cbd5e1;
-      --suave: #f8fafc; --azul: #1d4ed8; --azul-oscuro: #1e3a8a; --azul-noche: #0b1d51;
-      --verde: #15803d; --naranja: #c2410c; --rojo: #b91c1c; --gris: #475569;
-    }
-    /* Esquinas rectas en todo */
-    *, *::before, *::after { box-sizing: border-box; border-radius: 0 !important; }
-    html { background: var(--fondo); }
-    body {
-      margin: 0; min-height: 100vh; background: var(--fondo); color: var(--texto); line-height: 1.5;
-      font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; -webkit-font-smoothing: antialiased;
-    }
-    a { color: var(--azul); }
-    a:hover { color: var(--azul-oscuro); }
-    :focus-visible { outline: 3px solid #60a5fa; outline-offset: 2px; }
-    img { max-width: 100%; display: block; }
-    h1 { font-size: 1.6rem; margin: 0 0 1rem; font-weight: 700; letter-spacing: -.01em; }
-    h2 { font-size: 1.1rem; margin: 0 0 .75rem; font-weight: 600; }
-    .tenue { color: var(--tenue); }
-    .pequeno { font-size: .85rem; }
-
-    /* ---------- Fondo galaxia azul (barra, KPIs, resultado de caseta, cabecera de login) ---------- */
-    .galaxia {
-      position: relative; isolation: isolate; overflow: hidden; color: #fff; background-color: var(--azul-noche);
-      background-image:
-        radial-gradient(1px 1px at 14px 22px, #fff, transparent),
-        radial-gradient(1px 1px at 71px 96px, rgba(255,255,255,.85), transparent),
-        radial-gradient(1.5px 1.5px at 118px 38px, #fff, transparent),
-        radial-gradient(1px 1px at 40px 138px, rgba(255,255,255,.7), transparent),
-        radial-gradient(1px 1px at 162px 124px, rgba(191,219,254,.95), transparent),
-        radial-gradient(1.5px 1.5px at 186px 64px, rgba(255,255,255,.9), transparent),
-        radial-gradient(ellipse 55% 90% at 82% 0%, rgba(96,165,250,.38), transparent 70%),
-        radial-gradient(ellipse 45% 80% at 8% 100%, rgba(59,130,246,.30), transparent 70%),
-        radial-gradient(ellipse 30% 60% at 45% 50%, rgba(147,197,253,.12), transparent 75%),
-        linear-gradient(135deg, #0b1d51 0%, #1e3a8a 55%, #1d4ed8 100%);
-      background-size: 200px 160px, 200px 160px, 200px 160px, 200px 160px, 200px 160px, 200px 160px,
-                       100% 100%, 100% 100%, 100% 100%, 100% 100%;
-    }
-    /* Estrellas brillantes dispersas con box-shadow; titilan suavemente */
-    .galaxia::before {
-      content: ""; position: absolute; top: 0; left: 0; width: 2px; height: 2px; z-index: -1; pointer-events: none;
-      background: transparent; opacity: .9;
-      box-shadow: 46px 12px #fff, 133px 58px rgba(255,255,255,.8), 251px 9px #fff, 322px 90px rgba(191,219,254,.9),
-                  410px 24px #fff, 517px 64px rgba(255,255,255,.75), 603px 20px #fff, 88px 110px rgba(255,255,255,.7),
-                  702px 80px #fff, 811px 36px rgba(191,219,254,.9), 905px 120px #fff, 1012px 14px rgba(255,255,255,.8),
-                  1110px 70px #fff, 1230px 28px rgba(191,219,254,.9), 1340px 96px #fff, 288px 150px #fff, 560px 170px rgba(255,255,255,.7);
-      animation: titilar 6s ease-in-out infinite alternate;
-    }
-    @keyframes titilar { from { opacity: .45; } to { opacity: 1; } }
-    .galaxia a { color: #fff; }
-    .galaxia .tenue { color: #c7d7fe; }
-
-    /* ---------- Barra superior ---------- */
-    header.barra-sup { position: sticky; top: 0; z-index: 20; overflow: hidden; border-bottom: 1px solid #1e40af; }
-    .barra { max-width: 1180px; margin: 0 auto; padding: .55rem 1rem; display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
-    .marca { display: flex; align-items: center; gap: .55rem; font-weight: 800; font-size: 1.12rem; color: #fff;
-             text-decoration: none; letter-spacing: .01em; white-space: nowrap; }
-    .marca svg { width: 30px; height: 30px; color: #fff; }
-    nav.menu { display: flex; gap: .15rem; flex-wrap: wrap; flex: 1; }
-    nav.menu a { color: #dbe5ff; text-decoration: none; padding: .45rem .75rem; font-size: .93rem; font-weight: 500;
-                 border-bottom: 2px solid transparent; }
-    nav.menu a:hover { color: #fff; background: rgba(255,255,255,.1); }
-    nav.menu a.activo { color: #fff; background: rgba(255,255,255,.16); border-bottom-color: #fff; font-weight: 600; }
-    .usuario { display: flex; align-items: center; gap: .6rem; font-size: .9rem; margin-left: auto; }
-    .rol { font-size: .7rem; text-transform: uppercase; letter-spacing: .06em; padding: .1rem .45rem;
-           border: 1px solid rgba(255,255,255,.5); }
-    #menu-btn { display: none; background: transparent; color: #fff; border: 1px solid rgba(255,255,255,.6);
-                width: 42px; height: 42px; padding: 0; cursor: pointer; margin-left: auto; }
-    #menu-btn svg { width: 22px; height: 22px; display: block; margin: auto; }
-
-    /* ---------- Botones ---------- */
-    .boton {
-      display: inline-flex; align-items: center; justify-content: center; gap: .4rem; min-height: 40px;
-      padding: .45rem 1rem; font: inherit; font-size: .92rem; font-weight: 600; line-height: 1.2; cursor: pointer;
-      text-decoration: none; border: 1px solid var(--azul); background: #fff; color: var(--azul);
-      transition: background .15s, color .15s, border-color .15s;
-    }
-    .boton:hover { background: #eff6ff; color: var(--azul-oscuro); border-color: var(--azul-oscuro); }
-    .boton.primario { background: var(--azul); color: #fff; }
-    .boton.primario:hover { background: var(--azul-oscuro); border-color: var(--azul-oscuro); color: #fff; }
-    .boton.peligro { background: var(--rojo); border-color: var(--rojo); color: #fff; }
-    .boton.peligro:hover { background: #7f1d1d; border-color: #7f1d1d; }
-    .boton.claro { background: transparent; color: #fff; border-color: rgba(255,255,255,.7); }
-    .boton.claro:hover { background: rgba(255,255,255,.14); color: #fff; }
-    .boton.chico { min-height: 32px; padding: .25rem .65rem; font-size: .84rem; }
-    .boton.grande { min-height: 50px; padding: .7rem 1.5rem; font-size: 1.05rem; }
-    .boton:disabled { opacity: .55; cursor: not-allowed; }
-
-    /* ---------- Formularios ---------- */
-    input, select, textarea {
-      font: inherit; color: var(--texto); background: #fff; border: 1px solid var(--borde-fuerte);
-      padding: .5rem .7rem; min-height: 40px; max-width: 100%;
-    }
-    input:focus, select:focus, textarea:focus { outline: 2px solid var(--azul); outline-offset: -1px; border-color: var(--azul); }
-    label { font-size: .88rem; font-weight: 600; }
-    .campo { display: flex; flex-direction: column; gap: .3rem; }
-    .error-campo { color: var(--rojo); font-size: .82rem; }
-
-    /* ---------- Contenido ---------- */
-    main { max-width: 1180px; margin: 0 auto; padding: 1.5rem 1rem 3rem; }
-    .tarjeta { background: #fff; border: 1px solid var(--borde); padding: 1.25rem; }
-    .tarjeta.galaxia { border-color: #1e3a8a; }
-    .encabezado { display: flex; align-items: flex-end; justify-content: space-between; gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem; }
-    .encabezado h1 { margin: 0; }
-    .intro { margin: -.5rem 0 1.25rem; color: var(--tenue); max-width: 70ch; }
-
-    /* Tablas */
-    .tabla-caja { width: 100%; overflow-x: auto; border: 1px solid var(--borde); background: #fff; }
-    table.tabla { width: 100%; border-collapse: collapse; font-size: .92rem; }
-    .tabla th { text-align: left; font-size: .76rem; text-transform: uppercase; letter-spacing: .05em; color: var(--tenue);
-                background: var(--suave); padding: .6rem .75rem; border-bottom: 1px solid var(--borde); white-space: nowrap; }
-    .tabla td { padding: .6rem .75rem; border-bottom: 1px solid var(--borde); vertical-align: middle; }
-    .tabla tr:last-child td { border-bottom: 0; }
-    .tabla .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
-    .placa { font-weight: 700; letter-spacing: .06em; font-variant-numeric: tabular-nums; white-space: nowrap; }
-    .vacio { padding: 1.5rem; text-align: center; color: var(--tenue); }
-
-    /* Miniaturas de capturas */
-    .mini { width: 72px; height: 48px; object-fit: cover; background: #e2e8f0; border: 1px solid var(--borde); cursor: zoom-in; padding: 0; }
-    button.mini-btn { padding: 0; border: 0; background: none; cursor: zoom-in; display: block; }
-    .sin-captura { width: 72px; height: 48px; display: grid; place-items: center; background: var(--suave);
-                   border: 1px dashed var(--borde-fuerte); color: var(--tenue); font-size: .68rem; text-align: center; }
-
-    /* Badges de estado (rectos) */
-    .badge { display: inline-block; padding: .18rem .5rem; font-size: .76rem; font-weight: 700; color: #fff;
-             background: var(--gris); white-space: nowrap; letter-spacing: .01em; }
-    .e-cobrado, .e-habilitada, .badge.verde { background: var(--verde); }
-    .e-saldo_insuficiente, .badge.naranja { background: var(--naranja); }
-    .e-no_registrada, .e-placa_no_registrada, .badge.rojo { background: var(--rojo); }
-    .e-error_lectura, .e-inactiva { background: var(--gris); }
-
-    /* Mensajes */
-    .mensajes { list-style: none; padding: 0; margin: 0 0 1rem; display: grid; gap: .5rem; }
-    .mensajes li { padding: .65rem .9rem; border: 1px solid var(--borde); border-left: 4px solid var(--azul); background: #fff; }
-    .mensajes .success { border-left-color: var(--verde); background: #f0fdf4; }
-    .mensajes .error { border-left-color: var(--rojo); background: #fef2f2; }
-    .mensajes .warning { border-left-color: var(--naranja); background: #fff7ed; }
-
-    /* Banner de alerta en tiempo real */
-    #banner-alerta { display: none; background: var(--rojo); color: #fff; }
-    #banner-alerta.visible { display: block; }
-    #banner-alerta .dentro { max-width: 1180px; margin: 0 auto; padding: .7rem 1rem; display: flex; align-items: center; gap: .75rem; flex-wrap: wrap; }
-    #banner-alerta svg { width: 22px; height: 22px; flex: 0 0 auto; }
-    #banner-alerta .texto { flex: 1 1 260px; font-weight: 600; }
-    #banner-alerta a { color: #fff; font-weight: 700; }
-    #banner-alerta button { background: transparent; color: #fff; border: 1px solid rgba(255,255,255,.7); cursor: pointer;
-                            min-height: 34px; padding: .2rem .7rem; font: inherit; font-size: .85rem; }
-
-    /* Visor de imagen */
-    dialog#visor { border: 0; padding: 0; max-width: min(96vw, 1100px); background: #0f172a; }
-    dialog#visor::backdrop { background: rgba(15, 23, 42, .8); }
-    dialog#visor img { max-height: 82vh; width: auto; margin: 0 auto; }
-    dialog#visor .pie-visor { display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding: .6rem .8rem; color: #fff; font-size: .9rem; }
-
-    @media (max-width: 860px) {
-      #menu-btn { display: block; }
-      nav.menu, header.barra-sup .usuario { display: none; width: 100%; }
-      nav.menu { flex-direction: column; padding-top: .25rem; }
-      nav.menu a { padding: .7rem .5rem; border-bottom: 1px solid rgba(255,255,255,.12); }
-      nav.menu a.activo { border-bottom-color: rgba(255,255,255,.12); border-left: 3px solid #fff; }
-      header.barra-sup .usuario { margin: 0; padding: .6rem 0 .3rem; flex-wrap: wrap; }
-      header.abierto nav.menu, header.abierto .usuario { display: flex; }
-      h1 { font-size: 1.35rem; }
-    }
-    @media (prefers-reduced-motion: reduce) {
-      *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
-    }
-  </style>
+  <link rel="stylesheet" href="{% static 'css/iap.css' %}">
   {% block head %}{% endblock %}
 </head>
-<body>
+<body class="{% block clase_body %}{% endblock %}">
   {% block cabecera %}
   <header id="cabecera" class="barra-sup galaxia">
-    <div class="barra">
+    <div class="contenedor barra">
       <a class="marca" href="/">{% include "peaje/_icono.html" %}<span>Peaje IAP</span></a>
-      <button id="menu-btn" type="button" aria-label="Abrir menú" aria-expanded="false" aria-controls="menu">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+      <button id="menu-btn" class="menu-btn" type="button" aria-label="Abrir menú" aria-expanded="false" aria-controls="menu">
+        {% icono "menu" "ico ico-menu" %}{% icono "cerrar" "ico ico-cerrar" %}
       </button>
       {% with ruta=request.path %}
       <nav id="menu" class="menu" aria-label="Principal">
         {% if usuario_sesion %}
-        <a href="/" {% if ruta == "/" %}class="activo" aria-current="page"{% endif %}>Panel</a>
-        <a href="/caseta" {% if ruta == "/caseta" %}class="activo" aria-current="page"{% endif %}>Caseta</a>
-        <a href="/consulta" {% if ruta == "/consulta" %}class="activo" aria-current="page"{% endif %}>Consulta</a>
-        <a href="/vehiculos" {% if ruta == "/vehiculos" %}class="activo" aria-current="page"{% endif %}>Vehículos</a>
-        <a href="/alertas" {% if ruta == "/alertas" %}class="activo" aria-current="page"{% endif %}>Alertas</a>
+        <a href="/" {% if ruta == "/" %}class="activo" aria-current="page"{% endif %}>{% icono "barras" %}Panel</a>
+        <a href="/caseta" {% if ruta == "/caseta" %}class="activo" aria-current="page"{% endif %}>{% icono "camara" %}Caseta</a>
+        <a href="/consulta" {% if ruta == "/consulta" %}class="activo" aria-current="page"{% endif %}>{% icono "buscar" %}Consulta</a>
+        <a href="/vehiculos" {% if ruta == "/vehiculos" %}class="activo" aria-current="page"{% endif %}>{% icono "auto" %}Vehículos</a>
+        <a href="/alertas" {% if ruta == "/alertas" %}class="activo" aria-current="page"{% endif %}>{% icono "campana" %}Alertas</a>
         {% if usuario_sesion.rol == "admin" %}
-        <a href="/usuarios" {% if ruta == "/usuarios" %}class="activo" aria-current="page"{% endif %}>Usuarios</a>
+        <a href="/usuarios" {% if ruta == "/usuarios" %}class="activo" aria-current="page"{% endif %}>{% icono "usuarios" %}Usuarios</a>
         {% endif %}
         {% endif %}
-        <a href="/estado" {% if ruta == "/estado" %}class="activo" aria-current="page"{% endif %}>Estado</a>
+        <a href="/estado" {% if ruta == "/estado" %}class="activo" aria-current="page"{% endif %}>{% icono "actividad" %}Estado</a>
       </nav>
       {% endwith %}
-      <div class="usuario">
+      <div class="barra-usuario">
         {% if usuario_sesion %}
           <span>{{ usuario_sesion.nombre }}</span>
           <span class="rol">{{ usuario_sesion.rol }}</span>
-          <a class="boton claro chico" href="/logout">Salir</a>
+          <a class="boton claro chico" href="/logout">{% icono "salir" %}Salir</a>
         {% else %}
           <a class="boton claro chico" href="/login">Iniciar sesión</a>
         {% endif %}
@@ -214,29 +46,52 @@
     </div>
   </header>
   {% endblock %}
+
   {% if usuario_sesion %}
-  <div id="banner-alerta" role="alert" aria-live="assertive">
-    <div class="dentro">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M12 3 2 21h20L12 3zM12 10v5M12 18v.5"/></svg>
+  <div id="banner-alerta" class="banner-alerta" role="alert" aria-live="assertive" hidden>
+    <div class="contenedor">
+      {% icono "alerta" %}
       <span class="texto" id="banner-texto"></span>
       <a href="/alertas">Ver alertas</a>
-      <button type="button" id="banner-cerrar">Cerrar</button>
+      <button type="button" id="banner-cerrar" class="boton claro chico icono" aria-label="Cerrar aviso">{% icono "cerrar" %}</button>
     </div>
   </div>
   {% endif %}
-  <main>
-    {% if messages %}
-    <ul class="mensajes" role="status">
-      {% for m in messages %}<li class="{{ m.tags }}">{{ m }}</li>{% endfor %}
-    </ul>
-    {% endif %}
+
+  {% if messages %}
+  <ul class="toasts" aria-live="polite">
+    {% for m in messages %}
+    <li class="toast {{ m.tags|default:'info' }}" role="{% if m.tags == 'error' %}alert{% else %}status{% endif %}">
+      {% if m.tags == "success" %}{% icono "check" %}{% elif m.tags == "error" or m.tags == "warning" %}{% icono "alerta" %}{% else %}{% icono "info" %}{% endif %}
+      <span class="texto">{{ m }}</span>
+      <button type="button" class="toast-cerrar" aria-label="Cerrar mensaje">{% icono "cerrar" %}</button>
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+
+  <main class="contenedor">
     {% block contenido %}{% endblock %}
   </main>
-  <dialog id="visor" aria-label="Captura ampliada">
+
+  <dialog id="visor" class="visor" aria-label="Captura ampliada">
     <img id="visor-img" alt="">
-    <div class="pie-visor"><span id="visor-texto"></span>
-      <form method="dialog"><button class="boton claro chico" type="submit">Cerrar</button></form></div>
+    <div class="visor-pie"><span id="visor-texto"></span>
+      <form method="dialog"><button class="boton claro chico" type="submit">{% icono "cerrar" %}Cerrar</button></form></div>
   </dialog>
+
+  <dialog id="confirmar" class="confirmar" aria-labelledby="confirmar-titulo" aria-describedby="confirmar-texto">
+    <div class="confirmar-cuerpo">
+      {% icono "alerta" %}
+      <div><h2 id="confirmar-titulo">¿Confirmar acción?</h2><p id="confirmar-texto"></p></div>
+    </div>
+    <div class="confirmar-pie">
+      <button type="button" class="boton fantasma" id="confirmar-no">Cancelar</button>
+      <button type="button" class="boton peligro" id="confirmar-si">Confirmar</button>
+    </div>
+  </dialog>
+
+  {% if usuario_sesion %}{% csrf_token %}{% endif %}
   <script>
     function csrfToken() {
       var el = document.querySelector("[name=csrfmiddlewaretoken]");
@@ -245,12 +100,21 @@
       return m ? decodeURIComponent(m[1]) : "";
     }
     (function () {
+      // Menú hamburguesa
       var btn = document.getElementById("menu-btn"), cab = document.getElementById("cabecera");
       if (btn) btn.addEventListener("click", function () {
         var abierto = cab.classList.toggle("abierto");
         btn.setAttribute("aria-expanded", abierto ? "true" : "false");
         btn.setAttribute("aria-label", abierto ? "Cerrar menú" : "Abrir menú");
       });
+
+      // Toasts: se cierran solos (los de error duran más) o con el botón
+      Array.prototype.forEach.call(document.querySelectorAll(".toast"), function (t) {
+        var quitar = function () { if (t.parentNode) t.parentNode.removeChild(t); };
+        t.querySelector(".toast-cerrar").addEventListener("click", quitar);
+        setTimeout(quitar, t.classList.contains("error") ? 10000 : 6000);
+      });
+
       // Visor: cualquier elemento con data-ampliar="url" abre la imagen grande
       var visor = document.getElementById("visor");
       document.addEventListener("click", function (e) {
@@ -263,30 +127,47 @@
         if (visor.showModal) visor.showModal(); else window.open(el.getAttribute("data-ampliar"), "_blank");
       });
       visor.addEventListener("click", function (e) { if (e.target === visor) visor.close(); });
+
+      // Confirmación antes de acciones destructivas: <form data-confirmar="Mensaje" data-confirmar-boton="Desactivar">
+      var dlg = document.getElementById("confirmar"), pendiente = null;
+      document.addEventListener("submit", function (e) {
+        var f = e.target;
+        if (!f.hasAttribute("data-confirmar") || f.dataset.confirmado === "1") return;
+        e.preventDefault();
+        pendiente = f;
+        document.getElementById("confirmar-titulo").textContent = f.getAttribute("data-confirmar-titulo") || "¿Confirmar acción?";
+        document.getElementById("confirmar-texto").textContent = f.getAttribute("data-confirmar");
+        document.getElementById("confirmar-si").textContent = f.getAttribute("data-confirmar-boton") || "Confirmar";
+        if (dlg.showModal) { dlg.showModal(); document.getElementById("confirmar-no").focus(); }
+        else { f.dataset.confirmado = "1"; f.submit(); }
+      }, true);
+      document.getElementById("confirmar-no").addEventListener("click", function () { pendiente = null; dlg.close(); });
+      document.getElementById("confirmar-si").addEventListener("click", function () {
+        dlg.close();
+        if (pendiente) { pendiente.dataset.confirmado = "1"; pendiente.submit(); pendiente = null; }
+      });
+
+      var c = document.getElementById("banner-cerrar");
+      if (c) c.addEventListener("click", function () { document.getElementById("banner-alerta").hidden = true; });
     })();
     window.IAP = {
       textoAlerta: function (d) {
         var tipo = d.alerta.tipo === "placa_no_registrada" ? "placa no registrada (posible evasión)" : "saldo insuficiente";
-        return "Alerta: " + d.paso.placa + " — " + tipo + " · " + d.paso.hora;
+        return "Alerta: " + d.paso.placa + " · " + tipo + " · " + d.paso.hora;
       },
       mostrarAlerta: function (d) {
         var b = document.getElementById("banner-alerta");
         if (!b) return;
         document.getElementById("banner-texto").textContent = IAP.textoAlerta(d);
-        b.classList.add("visible");
+        b.hidden = false;
       }
     };
-    (function () {
-      var c = document.getElementById("banner-cerrar");
-      if (c) c.addEventListener("click", function () { document.getElementById("banner-alerta").classList.remove("visible"); });
-    })();
   </script>
-  {% if usuario_sesion %}{% csrf_token %}{% endif %}
   {% if usuario_sesion and pusher %}
   {{ pusher|json_script:"pusher-config" }}
   <script src="https://js.pusher.com/8.2.0/pusher.min.js"></script>
   <script>
-    // Tiempo real: un solo canal privado; se reemiten los eventos como CustomEvent para cada página.
+    // Tiempo real: un solo canal privado; los eventos se reemiten como CustomEvent para cada página.
     (function () {
       if (!window.Pusher) return;
       var cfg = JSON.parse(document.getElementById("pusher-config").textContent);

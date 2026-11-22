@@ -1,48 +1,34 @@
 {% extends "peaje/base.html" %}
 {% block titulo %}Iniciar sesión{% endblock %}
+{% block clase_body %}pagina-acceso{% endblock %}
 {% block cabecera %}{% endblock %}
-{% block head %}
-<script src="https://accounts.google.com/gsi/client" async defer></script>
-<style>
-  main { min-height: 100vh; min-height: 100dvh; display: flex; flex-direction: column; align-items: center;
-         justify-content: center; gap: 1.25rem; padding: 2rem 1rem; }
-  .acceso { width: 100%; max-width: 420px; border: 1px solid var(--borde); background: #fff; }
-  .acceso-cab { padding: 2rem 1.5rem 1.6rem; text-align: center; }
-  .acceso-cab svg { width: 56px; height: 56px; margin: 0 auto .75rem; color: #fff; display: block; }
-  .acceso-cab h1 { font-size: 1.9rem; font-weight: 800; margin: 0; letter-spacing: .01em; }
-  .acceso-cab p { margin: .2rem 0 0; color: #dbe5ff; font-weight: 500; }
-  .acceso-cuerpo { padding: 1.5rem; text-align: center; }
-  #google-btn { display: flex; justify-content: center; min-height: 44px; margin: .25rem 0 .5rem; }
-  #mensaje { min-height: 1.5em; color: var(--rojo); font-size: .9rem; margin: .25rem 0; }
-  .pie { text-align: center; font-size: .82rem; color: var(--tenue); }
-</style>
-{% endblock %}
+{% block head %}<script src="https://accounts.google.com/gsi/client" async defer></script>{% endblock %}
 {% block contenido %}
 <section class="acceso" aria-labelledby="titulo-login">
   <div class="acceso-cab galaxia">
     {% include "peaje/_icono.html" %}
-    <h1 id="titulo-login">Peaje IAP</h1>
+    <h1 id="titulo-login" class="titulo">Peaje IAP</h1>
     <p>Inteligencia Artificial de Peaje</p>
   </div>
   <div class="acceso-cuerpo">
-    <p class="tenue" style="margin:0 0 1rem">Inicia sesión con tu cuenta de Google autorizada.</p>
+    <p class="tenue">Inicia sesión con tu cuenta de Google autorizada.</p>
     {% if google_client_id %}
       <div id="g_id_onload"
            data-client_id="{{ google_client_id }}"
            data-callback="alIniciarConGoogle"
            data-auto_prompt="false"></div>
-      <div id="google-btn">
+      <div id="google-btn" style="display:flex;justify-content:center;min-height:44px">
         <div class="g_id_signin" data-type="standard" data-theme="outline" data-size="large"
              data-text="signin_with" data-shape="rectangular" data-locale="es" data-width="300"></div>
       </div>
     {% else %}
       <p id="google-btn" class="tenue">Falta configurar GOOGLE_CLIENT_ID.</p>
     {% endif %}
-    <p id="mensaje" role="alert"></p>
-    <p class="tenue pequeno" style="margin:0">Solo cuentas incluidas en la lista blanca.</p>
+    <p id="mensaje" class="error-campo" role="alert" style="justify-content:center;min-height:1.5em;margin:var(--e-2) 0"></p>
+    <p class="ayuda">Solo cuentas incluidas en la lista blanca.</p>
   </div>
 </section>
-<footer class="pie"><a href="/estado">Estado del sistema</a></footer>
+<p class="pie-acceso"><a href="/estado">Estado del sistema</a></p>
 {% csrf_token %}
 {% endblock %}
 {% block scripts %}
@@ -50,7 +36,7 @@
 <script>
   function alIniciarConGoogle(respuesta) {
     var msg = document.getElementById("mensaje");
-    msg.style.color = "var(--tenue)";
+    msg.style.color = "var(--c-tenue)";
     msg.textContent = "Verificando…";
     fetch("/auth/google/web", {
       method: "POST",

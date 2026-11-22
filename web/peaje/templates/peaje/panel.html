@@ -1,69 +1,47 @@
 {% extends "peaje/base.html" %}
+{% load iconos %}
 {% block titulo %}Panel{% endblock %}
-{% block head %}
-<style>
-  .vivo { display: inline-flex; align-items: center; gap: .45rem; font-size: .85rem; color: var(--tenue); }
-  .vivo::before { content: ""; width: 9px; height: 9px; background: var(--verde); }
-  .vivo.consulta::before { background: var(--naranja); }
-  .kpis { display: grid; gap: 1rem; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-bottom: 1rem; }
-  .kpi { padding: 1.1rem 1.25rem; min-height: 118px; display: flex; flex-direction: column; justify-content: space-between; }
-  .kpi .etiqueta { font-size: .78rem; text-transform: uppercase; letter-spacing: .08em; color: #c7d7fe; font-weight: 600; }
-  .kpi .valor { font-size: clamp(1.9rem, 4.5vw, 2.6rem); font-weight: 800; line-height: 1.1; font-variant-numeric: tabular-nums; }
-  .kpi .valor small { font-size: .5em; font-weight: 600; margin-right: .2rem; }
-  .kpi a { font-size: .82rem; color: #dbe5ff; }
-  .rejilla { display: grid; gap: 1rem; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); align-items: start; }
-  .grafica-caja { position: relative; height: 290px; }
-  .lista-pasos { list-style: none; margin: 0; padding: 0; }
-  .lista-pasos li { display: grid; grid-template-columns: 72px minmax(0, 1fr) auto auto; gap: .75rem; align-items: center;
-                    padding: .6rem 0; border-bottom: 1px solid var(--borde); transition: background-color 1.2s; }
-  .lista-pasos li:last-child { border-bottom: 0; }
-  .lista-pasos li.nuevo { background: #dbeafe; }
-  .lista-pasos .hora { font-size: .82rem; color: var(--tenue); font-variant-numeric: tabular-nums; }
-  .lista-pasos .monto { font-weight: 600; font-variant-numeric: tabular-nums; text-align: right; min-width: 72px; }
-  @media (max-width: 980px) { .rejilla { grid-template-columns: 1fr; } }
-  @media (max-width: 640px) {
-    .kpis { grid-template-columns: 1fr; }
-    .kpi { min-height: 0; }
-    .lista-pasos li { grid-template-columns: 64px minmax(0, 1fr) auto; }
-    .lista-pasos .monto { grid-column: 2 / -1; text-align: left; min-width: 0; font-size: .88rem; }
-    .grafica-caja { height: 230px; }
-  }
-</style>
-{% endblock %}
 {% block contenido %}
-<div class="encabezado">
-  <h1>Panel</h1>
-  <span id="modo" class="vivo consulta">Actualización automática</span>
-</div>
+<header class="pagina-cab galaxia">
+  <div>
+    <h1>Panel</h1>
+    <p class="subtitulo">Resumen del día y pasos por el peaje en tiempo real.</p>
+  </div>
+  <div class="acciones">
+    <span id="modo" class="estado-vivo consulta">Actualización automática</span>
+    <a class="boton blanco" href="/caseta">{% icono "camara" %}Abrir caseta</a>
+  </div>
+</header>
 
-<section class="kpis" aria-label="Indicadores de hoy">
+<section class="grilla grilla-3 mb-4" aria-label="Indicadores de hoy">
   <div class="tarjeta galaxia kpi">
-    <span class="etiqueta">Pasos de hoy</span>
-    <span class="valor" id="k-pasos">{{ datos.kpis.pasos_hoy }}</span>
+    <div class="kpi-cab"><span class="kpi-etiqueta">Pasos de hoy</span>{% icono "auto" %}</div>
+    <span class="kpi-valor" id="k-pasos">{{ datos.kpis.pasos_hoy }}</span>
   </div>
   <div class="tarjeta galaxia kpi">
-    <span class="etiqueta">Recaudación de hoy</span>
-    <span class="valor"><small>Bs</small><span id="k-recaudacion">{{ datos.kpis.recaudacion_hoy }}</span></span>
+    <div class="kpi-cab"><span class="kpi-etiqueta">Recaudación de hoy</span>{% icono "billetera" %}</div>
+    <span class="kpi-valor"><small>Bs</small><span id="k-recaudacion">{{ datos.kpis.recaudacion_hoy }}</span></span>
   </div>
   <div class="tarjeta galaxia kpi">
-    <span class="etiqueta">Alertas sin atender</span>
-    <span class="valor" id="k-alertas">{{ datos.kpis.alertas_pendientes }}</span>
-    <a href="/alertas">Ver alertas →</a>
+    <div class="kpi-cab"><span class="kpi-etiqueta">Alertas sin atender</span>{% icono "campana" %}</div>
+    <span class="kpi-valor" id="k-alertas">{{ datos.kpis.alertas_pendientes }}</span>
+    <a class="kpi-enlace" href="/alertas">Ver alertas{% icono "flecha" %}</a>
   </div>
 </section>
 
-<div class="rejilla">
+<div class="grilla grilla-panel">
   <section class="tarjeta">
-    <h2>Pasos por día · últimos 7 días</h2>
-    <div class="grafica-caja"><canvas id="grafica" role="img" aria-label="Gráfica de barras de pasos por día"></canvas></div>
+    <div class="tarjeta-cab"><h2>{% icono "barras" %}Pasos por día</h2><span class="tenue pequeno">Últimos 7 días</span></div>
+    <div class="grafica-caja"><canvas id="grafica" role="img" aria-label="Gráfica de barras de pasos por día en los últimos 7 días"></canvas></div>
   </section>
   <section class="tarjeta">
-    <h2>Últimos pasos</h2>
+    <div class="tarjeta-cab"><h2>{% icono "lista" %}Últimos pasos</h2><span class="tenue pequeno">Hasta 10</span></div>
     <ul id="lista" class="lista-pasos" aria-live="polite"></ul>
-    <p id="sin-pasos" class="vacio" hidden>Todavía no hay pasos registrados.</p>
+    <div id="sin-pasos" hidden>{% include "peaje/_vacio.html" with icono="bandeja" titulo="Todavía no hay pasos registrados" texto="Cuando la caseta reconozca una placa, el paso aparecerá aquí al instante." %}</div>
   </section>
 </div>
 {{ datos|json_script:"datos-panel" }}
+<template id="ico-imagen">{% icono "imagen" %}</template>
 {% endblock %}
 {% block scripts %}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
@@ -72,7 +50,7 @@
   var MAX = 10, POLL_MS = 10000;
   var $ = function (id) { return document.getElementById(id); };
   var datos = JSON.parse($("datos-panel").textContent);
-  var ids = {}, grafica = null, maxId = 0, alertasPrevias = datos.kpis.alertas_pendientes;
+  var grafica = null, maxId = 0, alertasPrevias = datos.kpis.alertas_pendientes;
   var reducido = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   function el(tag, cls, texto) {
@@ -89,32 +67,31 @@
       b.setAttribute("data-ampliar", p.imagen_url);
       b.setAttribute("data-titulo", p.placa + " · " + p.fecha + " " + p.hora);
       b.setAttribute("aria-label", "Ampliar captura de " + p.placa);
-      var img = el("img", "mini"); img.src = p.imagen_url; img.alt = ""; img.loading = "lazy";
+      var img = el("img"); img.src = p.imagen_url; img.alt = ""; img.loading = "lazy";
       b.appendChild(img); li.appendChild(b);
     } else {
-      li.appendChild(el("span", "sin-captura", "Sin captura"));
+      var s = el("span", "sin-captura"); s.title = "Sin captura";
+      s.appendChild($("ico-imagen").content.cloneNode(true)); li.appendChild(s);
     }
     var info = el("div");
     info.appendChild(el("div", "placa", p.placa));
     info.appendChild(el("div", "hora", p.fecha + " · " + p.hora));
     li.appendChild(info);
-    li.appendChild(el("span", "badge e-" + p.estado, p.estado_texto));
+    li.appendChild(el("span", "etiqueta e-" + p.estado, p.estado_texto));
     li.appendChild(el("span", "monto", "Bs " + p.monto));
     return li;
   }
 
   function pintarLista(pasos) {
-    var ul = $("lista"); ul.innerHTML = ""; ids = {};
-    pasos.forEach(function (p) { ids[p.id] = true; ul.appendChild(fila(p)); maxId = Math.max(maxId, p.id); });
+    var ul = $("lista"); ul.innerHTML = "";
+    pasos.forEach(function (p) { ul.appendChild(fila(p)); maxId = Math.max(maxId, p.id); });
     $("sin-pasos").hidden = pasos.length > 0;
   }
 
   function agregarPaso(p) {
-    var ul = $("lista");
-    var previo = ul.querySelector('[data-id="' + p.id + '"]');
-    var li = fila(p);
+    var ul = $("lista"), previo = ul.querySelector('[data-id="' + p.id + '"]'), li = fila(p);
     if (previo) { ul.replaceChild(li, previo); return; }  // p. ej. llegó la captura de Cloudinary
-    ids[p.id] = true; maxId = Math.max(maxId, p.id);
+    maxId = Math.max(maxId, p.id);
     ul.insertBefore(li, ul.firstChild);
     li.classList.add("nuevo");
     setTimeout(function () { li.classList.remove("nuevo"); }, 1500);
@@ -126,6 +103,7 @@
     $("k-pasos").textContent = k.pasos_hoy;
     $("k-recaudacion").textContent = k.recaudacion_hoy;
     $("k-alertas").textContent = k.alertas_pendientes;
+    alertasPrevias = k.alertas_pendientes;
   }
 
   function pintarGrafica(g) {
@@ -138,29 +116,27 @@
     }
     grafica = new Chart($("grafica"), {
       type: "bar",
-      data: { labels: g.etiquetas, datasets: [{ label: "Pasos", data: g.valores, backgroundColor: "#1d4ed8",
-              hoverBackgroundColor: "#1e3a8a", borderRadius: 0, borderSkipped: false, maxBarThickness: 48 }] },
+      data: { labels: g.etiquetas, datasets: [{ label: "Pasos", data: g.valores, backgroundColor: "#991b1b",
+              hoverBackgroundColor: "#7f1d1d", borderRadius: 0, borderSkipped: false, maxBarThickness: 48 }] },
       options: {
         responsive: true, maintainAspectRatio: false, animation: reducido ? false : { duration: 400 },
-        plugins: { legend: { display: false }, tooltip: { cornerRadius: 0, backgroundColor: "#0f172a" } },
+        plugins: { legend: { display: false }, tooltip: { cornerRadius: 0, backgroundColor: "#111827" } },
         scales: {
-          x: { grid: { display: false }, ticks: { color: "#475569", font: { family: "Inter" } } },
-          y: { beginAtZero: true, ticks: { precision: 0, color: "#475569", font: { family: "Inter" } },
-               grid: { color: "#e2e8f0" }, border: { display: false } }
+          x: { grid: { display: false }, ticks: { color: "#4b5563", font: { family: "Inter" } } },
+          y: { beginAtZero: true, ticks: { precision: 0, color: "#4b5563", font: { family: "Inter" } },
+               grid: { color: "#e5e7eb" }, border: { display: false } }
         }
       }
     });
   }
 
-  // --- Tiempo real con Pusher ---
+  // Tiempo real con Pusher
   document.addEventListener("iap:paso", function (e) {
-    var d = e.detail;
-    agregarPaso(d.paso); pintarKpis(d.kpis); pintarGrafica(d.grafica);
-    alertasPrevias = d.kpis.alertas_pendientes;
+    agregarPaso(e.detail.paso); pintarKpis(e.detail.kpis); pintarGrafica(e.detail.grafica);
   });
-  document.addEventListener("iap:kpis", function (e) { pintarKpis(e.detail.kpis); alertasPrevias = e.detail.kpis.alertas_pendientes; });
+  document.addEventListener("iap:kpis", function (e) { pintarKpis(e.detail.kpis); });
 
-  // --- Respaldo sin Pusher: consulta periódica ---
+  // Respaldo sin Pusher: consulta periódica
   var TIPO = { no_registrada: "placa_no_registrada", saldo_insuficiente: "saldo_insuficiente" };
   function consultar() {
     if (document.hidden) return;
@@ -172,7 +148,6 @@
           var conAlerta = nuevos.filter(function (p) { return TIPO[p.estado]; })[0];
           if (conAlerta) IAP.mostrarAlerta({ paso: conAlerta, alerta: { tipo: TIPO[conAlerta.estado] } });
         }
-        alertasPrevias = n.kpis.alertas_pendientes;
         pintarLista(n.pasos); pintarKpis(n.kpis); pintarGrafica(n.grafica);
       })
       .catch(function () {});
@@ -183,7 +158,7 @@
   if (window.IAP && IAP.tiempoReal) {
     $("modo").textContent = "En vivo"; $("modo").classList.remove("consulta");
   } else {
-    $("modo").textContent = "Actualización cada " + (POLL_MS / 1000) + " s";
+    $("modo").textContent = "Actualiza cada " + (POLL_MS / 1000) + " s";
     setInterval(consultar, POLL_MS);
   }
 })();

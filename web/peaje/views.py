@@ -297,7 +297,11 @@ def _estado_bd():
         return {"base_datos": "caida"}
 
 
-MODELOS = [("m1_placas", "M1 · Placas"), ("m2_segmentacion", "M2 · Segmentación"), ("m3_keypoints", "M3 · Ejes")]
+# Nombres visibles de los modelos (las claves siguen siendo las del endpoint /salud)
+MODELOS = [("m1_placas", "Lectura de placas"), ("m2_segmentacion", "Tipo de vehículo"),
+           ("m3_keypoints", "Conteo de ejes")]
+ESTADOS_MODELO = {"cargado": ("Activo", "ok"), "pendiente": ("Pendiente de entrenamiento", "aviso"),
+                  "cargando": ("Cargando", "aviso")}
 
 
 def _estado_inferencia():
@@ -328,5 +332,6 @@ def estado(request):
     modelos = []
     if datos["inferencia"] == "ok":
         srv = (datos.get("detalle") or {}).get("modelos") or {}
-        modelos = [(nombre, srv.get(clave, "pendiente")) for clave, nombre in MODELOS]
+        modelos = [(nombre, *ESTADOS_MODELO.get(srv.get(clave, "pendiente"), ("Desconocido", "aviso")))
+                   for clave, nombre in MODELOS]
     return render(request, "peaje/estado.html", {"datos": datos, "modelos": modelos, "bd_ok": datos["base_datos"] == "ok"}, status=status)

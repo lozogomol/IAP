@@ -1,5 +1,6 @@
 """Configuración de Django. Todo lo sensible se lee de variables de entorno (.env en local, Environment en Render)."""
 import os
+import sys
 from pathlib import Path
 
 import dj_database_url
@@ -71,9 +72,12 @@ USE_TZ = True
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 STATICFILES_DIRS = [BASE_DIR / "static"]
+TESTING = sys.argv[1:2] == ["test"]
 STORAGES = {
     "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
-    "staticfiles": {"BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage"},
+    # En los tests no hay collectstatic (ni manifest): se usa el almacenamiento simple.
+    "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage" if TESTING
+                    else "whitenoise.storage.CompressedManifestStaticFilesStorage"},
 }
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"

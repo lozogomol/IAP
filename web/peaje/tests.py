@@ -77,8 +77,10 @@ class DatosInicialesTests(TestCase):
         self.assertTrue(Caseta.objects.filter(nombre="Peaje IAP").exists())
         self.assertTrue(Usuario.objects.filter(email_google="lozogomol@gmail.com", rol="admin").exists())
         self.assertEqual(Tarifa.objects.get(categoria="camion", ejes=6).monto, Decimal("60"))
-        self.assertEqual(Paso.objects.filter(estado="no_registrada").count(), 2)
-        self.assertEqual(Alerta.objects.filter(tipo="placa_no_registrada").count(), 2)
+        # La migración 0005 deja el historial en 0 y los vehículos sin propietario; usuarios intactos.
+        self.assertEqual((Paso.objects.count(), Alerta.objects.count()), (0, 0))
+        self.assertFalse(Vehiculo.objects.exclude(propietario="").exists())
+        self.assertTrue(Usuario.objects.filter(email_google="doc.alvaro.pinto.ma@unifranz.edu.bo").exists())
 
     def test_placas_validas(self):
         for v in Vehiculo.objects.all():

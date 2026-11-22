@@ -42,3 +42,7 @@ La cámara del navegador exige **HTTPS** (Render, o un túnel ngrok hacia el ser
 - **Capturas**: el frame que registró el paso se guarda en Cloudinary si existe `CLOUDINARY_URL`; si no, en
   `web/media/capturas/` (en Render el disco es efímero: configurar Cloudinary en producción).
 - El modo caseta usa siempre la caseta **"Peaje IAP"** (migración 0004); las demás se conservan con su historial.
+- La migración 0005 hace una **limpieza única**: borra pasos, alertas, lecturas y capturas (disco local y carpeta
+  `iap/capturas` de Cloudinary), vacía el propietario de los vehículos (campo opcional que ya no se muestra) y no
+  toca la tabla `usuarios`.
+- Estilos: un solo archivo `web/static/css/iap.css` (tokens, mobile first, breakpoints 640/1024, esquinas rectas).

@@ -33,7 +33,7 @@ class Usuario(models.Model):
 
 class Vehiculo(models.Model):
     placa = models.CharField(max_length=10, unique=True)
-    propietario = models.CharField(max_length=120)
+    propietario = models.CharField(max_length=120, blank=True, default="")  # esquema mínimo; no se muestra
     categoria = models.CharField(max_length=10, choices=CATEGORIAS)
     ejes = models.PositiveSmallIntegerField(default=2)
     saldo = models.DecimalField(max_digits=10, decimal_places=2, default=0)

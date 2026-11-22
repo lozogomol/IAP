@@ -1,46 +1,43 @@
 {% extends "peaje/base.html" %}
+{% load iconos %}
 {% block titulo %}Usuarios{% endblock %}
-{% block head %}
-<style>
-  .seccion { margin-bottom: 1.75rem; }
-  .seccion h2 { display: flex; align-items: center; gap: .5rem; }
-  .contador { display: inline-block; min-width: 1.5rem; padding: 0 .35rem; text-align: center; background: var(--azul); color: #fff; font-size: .8rem; }
-  .tabla form { margin: 0; display: flex; gap: .4rem; align-items: center; }
-  .tabla select { min-height: 34px; padding: .25rem .5rem; font-size: .9rem; }
-  .tabla .email { word-break: break-all; }
-  .acciones { display: flex; gap: .4rem; flex-wrap: wrap; }
-  .oculto { position: absolute; left: -9999px; }
-</style>
-{% endblock %}
 {% block contenido %}
-<h1>Usuarios</h1>
+<header class="pagina-cab galaxia">
+  <div>
+    <h1>Usuarios</h1>
+    <p class="subtitulo">Lista blanca de cuentas de Google con acceso, sus roles y las solicitudes pendientes.</p>
+  </div>
+</header>
 
 <section class="seccion" aria-labelledby="t-pend">
-  <h2 id="t-pend">Solicitudes pendientes{% if pendientes %}<span class="contador">{{ pendientes|length }}</span>{% endif %}</h2>
+  <div class="seccion-cab">
+    <h2 id="t-pend" class="flex">Solicitudes pendientes{% if pendientes %}<span class="contador">{{ pendientes|length }}</span>{% endif %}</h2>
+  </div>
   <div class="tabla-caja">
     <table class="tabla">
       <thead><tr><th scope="col">Email</th><th scope="col">Nombre</th><th scope="col">Solicitado</th><th scope="col">Acción</th></tr></thead>
       <tbody>
         {% for u in pendientes %}
         <tr>
-          <td class="email">{{ u.email_google }}</td>
-          <td>{{ u.nombre }}</td>
-          <td class="tenue">{% if u.solicitado_at %}{{ u.solicitado_at|date:"d/m/Y H:i" }}{% else %}—{% endif %}</td>
-          <td>
-            <div class="acciones">
+          <td data-label="Email">{{ u.email_google }}</td>
+          <td data-label="Nombre">{{ u.nombre }}</td>
+          <td data-label="Solicitado" class="tenue num">{% if u.solicitado_at %}{{ u.solicitado_at|date:"d/m/Y H:i" }}{% else %}—{% endif %}</td>
+          <td data-label="Acción" class="celda-acciones">
+            <div class="acciones-fila">
               <form method="post" action="/usuarios/{{ u.id }}">{% csrf_token %}
                 <input type="hidden" name="accion" value="aprobar">
-                <button class="boton chico primario" type="submit">Aprobar</button>
+                <button class="boton chico primario" type="submit">{% icono "check" %}Aprobar</button>
               </form>
-              <form method="post" action="/usuarios/{{ u.id }}">{% csrf_token %}
+              <form method="post" action="/usuarios/{{ u.id }}" data-confirmar="{{ u.email_google }} no podrá entrar ni volver a solicitar acceso hasta que un administrador lo reactive."
+                    data-confirmar-titulo="¿Rechazar la solicitud?" data-confirmar-boton="Rechazar">{% csrf_token %}
                 <input type="hidden" name="accion" value="rechazar">
-                <button class="boton chico peligro" type="submit">Rechazar</button>
+                <button class="boton chico fantasma" type="submit">{% icono "cerrar" %}Rechazar</button>
               </form>
             </div>
           </td>
         </tr>
         {% empty %}
-        <tr><td colspan="4" class="vacio">No hay solicitudes pendientes.</td></tr>
+        <tr class="fila-vacia"><td colspan="4" class="vacio-celda">{% include "peaje/_vacio.html" with icono="bandeja" titulo="No hay solicitudes pendientes" %}</td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -48,38 +45,40 @@
 </section>
 
 <section class="seccion" aria-labelledby="t-usu">
-  <h2 id="t-usu">Usuarios registrados</h2>
+  <div class="seccion-cab"><h2 id="t-usu">Usuarios registrados</h2><span class="tenue pequeno">{{ usuarios|length }} cuenta{{ usuarios|length|pluralize }}</span></div>
   <div class="tabla-caja">
     <table class="tabla">
       <thead><tr><th scope="col">Email</th><th scope="col">Nombre</th><th scope="col">Rol</th><th scope="col">Activo</th></tr></thead>
       <tbody>
         {% for u in usuarios %}
         <tr>
-          <td class="email">{{ u.email_google }}</td>
-          <td>{{ u.nombre }}{% if u.id == usuario_sesion.usuario_id %} <span class="tenue">(tú)</span>{% endif %}</td>
-          <td>
+          <td data-label="Email">{{ u.email_google }}</td>
+          <td data-label="Nombre">{{ u.nombre }}{% if u.id == usuario_sesion.usuario_id %} <span class="tenue">(tú)</span>{% endif %}</td>
+          <td data-label="Rol">
             {% if u.id == usuario_sesion.usuario_id %}
               {{ u.get_rol_display }}
             {% else %}
-            <form method="post" action="/usuarios/{{ u.id }}">{% csrf_token %}
+            <form method="post" action="/usuarios/{{ u.id }}" class="acciones-fila">{% csrf_token %}
               <input type="hidden" name="accion" value="rol">
-              <label class="oculto" for="rol-{{ u.id }}">Rol de {{ u.nombre }}</label>
-              <select id="rol-{{ u.id }}" name="rol" onchange="this.form.submit()">
+              <label class="visualmente-oculto" for="rol-{{ u.id }}">Rol de {{ u.nombre }}</label>
+              <select id="rol-{{ u.id }}" name="rol" onchange="this.form.submit()" style="min-height:36px;width:auto">
                 {% for valor, texto in roles %}<option value="{{ valor }}" {% if valor == u.rol %}selected{% endif %}>{{ texto }}</option>{% endfor %}
               </select>
               <noscript><button class="boton chico" type="submit">Guardar</button></noscript>
             </form>
             {% endif %}
           </td>
-          <td>
-            <div class="acciones">
-              {% if u.activo %}<span class="badge verde">Activo</span>{% else %}<span class="badge e-inactiva">Inactivo</span>{% endif %}
+          <td data-label="Activo">
+            <div class="acciones-fila">
+              {% if u.activo %}<span class="etiqueta verde">Activo</span>{% else %}<span class="etiqueta gris">Inactivo</span>{% endif %}
               {% if u.id != usuario_sesion.usuario_id %}
-              <form method="post" action="/usuarios/{{ u.id }}">{% csrf_token %}
+              <form method="post" action="/usuarios/{{ u.id }}"
+                    {% if u.activo %}data-confirmar="{{ u.email_google }} perderá el acceso de inmediato." data-confirmar-titulo="¿Desactivar a {{ u.nombre }}?" data-confirmar-boton="Desactivar"{% endif %}>
+                {% csrf_token %}
                 {% if u.activo %}
-                <input type="hidden" name="accion" value="desactivar"><button class="boton chico" type="submit">Desactivar</button>
+                <input type="hidden" name="accion" value="desactivar"><button class="boton chico fantasma" type="submit">{% icono "power" %}Desactivar</button>
                 {% else %}
-                <input type="hidden" name="accion" value="activar"><button class="boton chico" type="submit">Activar</button>
+                <input type="hidden" name="accion" value="activar"><button class="boton chico" type="submit">{% icono "power" %}Activar</button>
                 {% endif %}
               </form>
               {% endif %}

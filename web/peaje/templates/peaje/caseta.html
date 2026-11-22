@@ -1,73 +1,43 @@
 {% extends "peaje/base.html" %}
+{% load iconos %}
 {% block titulo %}Caseta{% endblock %}
-{% block head %}
-<style>
-  .sub { margin: -.75rem 0 1rem; }
-  .rejilla { display: grid; gap: 1rem; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); align-items: start; }
-  .video-caja { position: relative; aspect-ratio: 16 / 10; background: #0f172a; border: 1px solid #0f172a; overflow: hidden; }
-  .video-caja video { width: 100%; height: 100%; object-fit: cover; display: block; }
-  .video-caja .indicacion { position: absolute; inset: 0; display: grid; place-items: center; text-align: center;
-                            padding: 1rem; color: #cbd5e1; }
-  .en-vivo { position: absolute; top: .75rem; left: .75rem; display: none; align-items: center; gap: .45rem;
-             padding: .25rem .6rem; background: rgba(15,23,42,.8); color: #fff; font-size: .8rem; font-weight: 700; }
-  .en-vivo::before { content: ""; width: 9px; height: 9px; background: #ef4444; }
-  .grabando .en-vivo { display: inline-flex; }
-  .acciones { display: flex; gap: .75rem; align-items: center; flex-wrap: wrap; margin-top: .75rem; }
-  .acciones .boton { min-width: 240px; }
-  .discreto { font-size: .8rem; color: var(--tenue); font-variant-numeric: tabular-nums; }
-  .resultado { padding: 1.25rem; }
-  .resultado .etiqueta { font-size: .78rem; text-transform: uppercase; letter-spacing: .08em; color: #c7d7fe; font-weight: 600; }
-  .placa-grande { font-size: clamp(2.4rem, 9vw, 3.6rem); font-weight: 800; letter-spacing: .08em; line-height: 1.1;
-                  margin: .35rem 0 .6rem; font-variant-numeric: tabular-nums; word-break: break-all; }
-  .resultado .badge { font-size: .95rem; padding: .3rem .75rem; }
-  .datos { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; margin: 1rem 0; background: rgba(255,255,255,.25);
-           border: 1px solid rgba(255,255,255,.25); }
-  .dato { background: rgba(11,29,81,.55); padding: .6rem .75rem; }
-  .dato b { display: block; font-size: 1.25rem; font-variant-numeric: tabular-nums; }
-  .dato span { font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; color: #c7d7fe; }
-  .captura { aspect-ratio: 16 / 10; background: rgba(15,23,42,.5); border: 1px solid rgba(255,255,255,.3);
-             display: grid; place-items: center; color: #c7d7fe; font-size: .85rem; overflow: hidden; }
-  .captura img { width: 100%; height: 100%; object-fit: cover; }
-  #lectura { min-height: 1.4em; font-size: .9rem; margin: .75rem 0 0; color: #dbe5ff; }
-  #aviso { display: none; margin-bottom: 1rem; border-left: 4px solid var(--rojo); background: #fef2f2; }
-  #aviso.visible { display: block; }
-  @media (max-width: 900px) {
-    .rejilla { grid-template-columns: 1fr; }
-    .video-caja { aspect-ratio: 4 / 3; }
-    .acciones .boton { flex: 1 1 100%; min-width: 0; }
-  }
-</style>
-{% endblock %}
+{% block clase_body %}con-barra-accion{% endblock %}
 {% block contenido %}
-<h1>Peaje IAP</h1>
-<p class="sub tenue">Modo caseta · reconocimiento automático de placas</p>
-<div id="aviso" class="tarjeta" role="alert"></div>
-<div class="rejilla">
+<header class="pagina-cab galaxia">
   <div>
+    <h1>Peaje IAP</h1>
+    <p class="subtitulo">Modo caseta: la cámara lee las placas y registra el cobro automáticamente.</p>
+  </div>
+</header>
+<div id="aviso" class="aviso" role="alert" hidden>{% icono "alerta" %}<span id="aviso-texto"></span></div>
+<div class="grilla grilla-caseta">
+  <section aria-label="Cámara">
     <div id="video-caja" class="video-caja">
-      <video id="video" playsinline muted autoplay></video>
-      <div id="indicacion" class="indicacion">Pulsa «Iniciar reconocimiento» para abrir la cámara trasera.</div>
+      <video id="video" playsinline muted autoplay aria-label="Vista de la cámara"></video>
+      <div id="indicacion" class="indicacion">{% icono "camara" %}<span>Pulsa «Iniciar reconocimiento» para abrir la cámara trasera.</span></div>
       <div class="en-vivo">EN VIVO · <span id="restante">60</span> s</div>
     </div>
-    <div class="acciones">
-      <button id="btn" class="boton primario grande" type="button">Iniciar reconocimiento</button>
+    <div class="barra-accion">
+      <button id="btn" class="boton primario grande" type="button">{% icono "play" %}<span>Iniciar reconocimiento</span></button>
       <span class="discreto">Peticiones: <span id="contador">0</span> · Latencia: <span id="latencia">–</span></span>
     </div>
-  </div>
+  </section>
   <section class="tarjeta galaxia resultado" aria-live="polite" aria-label="Último resultado">
-    <div class="etiqueta">Último resultado</div>
+    <div class="resultado-etiqueta">Último resultado</div>
     <div id="placa" class="placa-grande">———</div>
-    <span id="estado" class="badge">Sin lecturas</span>
-    <div class="datos">
-      <div class="dato"><b id="monto">–</b><span>Monto cobrado</span></div>
-      <div class="dato"><b id="hora">–</b><span>Hora</span></div>
+    <span id="estado" class="etiqueta gris">Sin lecturas</span>
+    <div class="datos-par">
+      <div><b id="monto">–</b><span>Monto cobrado</span></div>
+      <div><b id="hora">–</b><span>Hora</span></div>
     </div>
-    <div id="captura" class="captura">Aquí aparecerá la captura</div>
-    <p id="lectura"></p>
+    <div id="captura" class="captura-grande">{% icono "imagen" %}<span>Aquí aparecerá la captura</span></div>
+    <p id="lectura" class="nota-resultado"></p>
   </section>
 </div>
 <canvas id="lienzo" hidden></canvas>
 {{ caseta.id|json_script:"caseta-id" }}
+<template id="ico-play">{% icono "play" %}</template>
+<template id="ico-detener">{% icono "detener" %}</template>
 {% endblock %}
 {% block scripts %}
 <script>
@@ -78,7 +48,7 @@
   var video = $("video"), lienzo = $("lienzo"), btn = $("btn");
   var flujo = null, temporizador = null, reloj = null, enCurso = false, enviadas = 0, inicio = 0, urlCaptura = null;
 
-  function aviso(texto) { $("aviso").textContent = texto; $("aviso").classList.toggle("visible", !!texto); }
+  function aviso(texto) { $("aviso-texto").textContent = texto; $("aviso").hidden = !texto; }
 
   function soporte() {
     if (!window.isSecureContext) {
@@ -104,7 +74,10 @@
   }
 
   function modoBoton(activo) {
-    btn.textContent = activo ? "Detener" : "Iniciar reconocimiento";
+    btn.innerHTML = "";
+    btn.appendChild($(activo ? "ico-detener" : "ico-play").content.cloneNode(true));
+    var t = document.createElement("span"); t.textContent = activo ? "Detener" : "Iniciar reconocimiento";
+    btn.appendChild(t);
     btn.classList.toggle("primario", !activo);
     btn.classList.toggle("peligro", activo);
   }
@@ -122,7 +95,7 @@
       video.srcObject = s;
       return video.play();
     }).then(function () {
-      $("indicacion").style.display = "none";
+      $("indicacion").hidden = true;
       $("video-caja").classList.add("grabando");
       enviadas = 0; $("contador").textContent = "0";
       inicio = Date.now();
@@ -141,7 +114,7 @@
     if (flujo) { flujo.getTracks().forEach(function (t) { t.stop(); }); flujo = null; }
     video.srcObject = null;
     $("video-caja").classList.remove("grabando");
-    $("indicacion").style.display = "";
+    $("indicacion").hidden = false;
     modoBoton(false);
     if (motivo) $("lectura").textContent = motivo;
   }
@@ -200,9 +173,10 @@
     }
     $("placa").textContent = p.placa;
     $("estado").textContent = p.estado_texto;
-    $("estado").className = "badge e-" + p.estado;
+    $("estado").className = "etiqueta e-" + p.estado;
     $("monto").textContent = "Bs " + p.monto_cobrado;
-    $("hora").textContent = new Date(p.created_at).toLocaleTimeString("es-BO", { hour: "2-digit", minute: "2-digit", second: "2-digit", timeZone: "America/La_Paz" });
+    $("hora").textContent = new Date(p.created_at).toLocaleTimeString("es-BO",
+      { hour: "2-digit", minute: "2-digit", second: "2-digit", timeZone: "America/La_Paz" });
     ponerCaptura(blob);
     $("lectura").textContent = p.nota || "Paso registrado.";
   }

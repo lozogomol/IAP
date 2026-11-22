@@ -23,6 +23,17 @@ def _sincrono(funcion, *args):
     funcion(*args)
 
 
+def _paso(placa, estado="cobrado", monto="0", alerta=None, hace=None, **extra):
+    paso = Paso.objects.create(placa_leida=placa, placa_normalizada=placa, caseta=caseta_principal(), estado=estado,
+                               monto=Decimal(monto), **extra)
+    if hace is not None:
+        Paso.objects.filter(pk=paso.pk).update(created_at=timezone.now() - hace)
+        paso.refresh_from_db()
+    if alerta:
+        Alerta.objects.create(paso=paso, tipo=alerta)
+    return paso
+
+
 class MediaTemporal(TestCase):
     def setUp(self):
         self.media = tempfile.mkdtemp(prefix="iap-test-")
@@ -68,6 +79,8 @@ class PanelTests(MediaTemporal):
 
     def test_pagina_y_json(self):
         entrar(self.client, self.oper)
+        self.assertContains(self.client.get("/"), "Todavía no hay pasos registrados")
+        _paso("3876LBD", monto="10")
         r = self.client.get("/")
         for texto in ("Pasos de hoy", "Recaudación de hoy", "Alertas sin atender", "Últimos pasos",
                       "chart.umd.min.js", "datos-panel"):
@@ -184,18 +197,21 @@ class PusherAuthTests(TestCase):
 class VehiculosTests(MediaTemporal):
     def test_registrar_normaliza_y_usa_valores_por_defecto(self):
         entrar(self.client, self.oper)
-        r = self.client.post("/vehiculos", {"placa": "5555-abc", "propietario": "Nora", "saldo": "20"})
+        r = self.client.post("/vehiculos", {"placa": "5555-abc", "saldo": "20"})
         self.assertRedirects(r, "/vehiculos", fetch_redirect_response=False)
         v = Vehiculo.objects.get(placa="5555ABC")
-        self.assertEqual((v.propietario, v.saldo, v.categoria, v.ejes, v.activo), ("Nora", Decimal("20"), "auto", 2, True))
+        self.assertEqual((v.propietario, v.saldo, v.categoria, v.ejes, v.activo), ("", Decimal("20"), "auto", 2, True))
+        self.client.post("/vehiculos", {"placa": "666 XYZ"})  # saldo vacío = 0
+        self.assertEqual(Vehiculo.objects.get(placa="666XYZ").saldo, Decimal("0"))
 
     def test_validaciones(self):
         entrar(self.client, self.oper)
-        r = self.client.post("/vehiculos", {"placa": "AB12", "propietario": "X", "saldo": "0"})
-        self.assertContains(r, "Formato boliviano")
-        r = self.client.post("/vehiculos", {"placa": "3876 LBD", "propietario": "X", "saldo": "0"})
+        r = self.client.post("/vehiculos", {"placa": "AB12", "saldo": "0"})
+        self.assertContains(r, "Formato no válido")
+        self.assertContains(r, 'aria-invalid="true"')
+        r = self.client.post("/vehiculos", {"placa": "3876 LBD", "saldo": "0"})
         self.assertContains(r, "ya está registrada")
-        r = self.client.post("/vehiculos", {"placa": "7777XYZ", "propietario": "X", "saldo": "-5"})
+        r = self.client.post("/vehiculos", {"placa": "7777XYZ", "saldo": "-5"})
         self.assertContains(r, "no puede ser negativo")
         self.assertFalse(Vehiculo.objects.filter(placa__in=["AB12", "7777XYZ"]).exists())
 
@@ -204,6 +220,7 @@ class VehiculosTests(MediaTemporal):
         r = self.client.get("/vehiculos")
         self.assertContains(r, "Sin pasos")  # hay vehículos sin ningún paso
         self.assertNotContains(r, "Categoría")
+        self.assertNotContains(r, "Propietario")
         self.assertNotContains(r, "Recargar")  # solo admin
         r = self.client.get("/vehiculos", {"q": "2451-k"})
         self.assertContains(r, "2451KTP")
@@ -227,6 +244,9 @@ class AlertasTests(MediaTemporal):
     def test_lista_filtro_y_atender(self):
         entrar(self.client, self.oper)
         r = self.client.get("/alertas")
+        self.assertContains(r, "No hay alertas pendientes")
+        _paso("6120PQR", estado="no_registrada", alerta="placa_no_registrada")
+        r = self.client.get("/alertas")
         self.assertContains(r, "posible evasión")
         self.assertContains(r, "6120PQR")
         self.assertContains(r, "Marcar atendida")
@@ -244,10 +264,16 @@ class AlertasTests(MediaTemporal):
 class ConsultaUltimoPasoTests(TestCase):
     def test_ultimo_paso(self):
         entrar(self.client, Usuario.objects.get(email_google="lozogomol@gmail.com"))
+        self.assertIsNone(self.client.get("/api/v1/vehiculos/consulta", {"placa": "2451KTP"}).json()["ultimo_paso"])
+        _paso("2451KTP", hace=timedelta(days=1))
+        reciente = _paso("2451KTP", monto="5", imagen_url="/capturas/x.jpg")
         d = self.client.get("/api/v1/vehiculos/consulta", {"placa": "2451KTP"}).json()
         self.assertEqual(d["estado"], "habilitada")
-        self.assertEqual((d["ultimo_paso"]["fecha"], d["ultimo_paso"]["hora"]), ("14/11/2026", "07:42:00"))
-        self.assertIsNone(self.client.get("/api/v1/vehiculos/consulta", {"placa": "4012MNS"}).json()["ultimo_paso"])
+        local = timezone.localtime(reciente.created_at)
+        self.assertEqual((d["ultimo_paso"]["fecha"], d["ultimo_paso"]["hora"], d["ultimo_paso"]["imagen_url"]),
+                         (local.strftime("%d/%m/%Y"), local.strftime("%H:%M:%S"), "/capturas/x.jpg"))
+        self.assertEqual(d["vehiculo"]["propietario"], "")  # la clave JSON se mantiene
+        _paso("6120PQR", estado="no_registrada")
         # placa no registrada que sí pasó (posible evasión)
         d = self.client.get("/api/v1/vehiculos/consulta", {"placa": "6120PQR"}).json()
         self.assertEqual((d["estado"], d["ultimo_paso"]["estado"]), ("no_registrada", "no_registrada"))
@@ -262,7 +288,8 @@ class EstadoPaginaTests(TestCase):
         with mock.patch("peaje.views.urllib.request.urlopen", return_value=resp):
             r = self.client.get("/estado")
         self.assertEqual(r.status_code, 200)
-        for texto in ("Web", "Base de datos", "Inferencia", "M1 · Placas", "Cargado", "Pendiente", "Volver a comprobar"):
+        for texto in ("Web", "Base de datos", "Inferencia", "Lectura de placas", "Tipo de vehículo", "Conteo de ejes",
+                      "Activo", "Pendiente de entrenamiento", "Volver a comprobar"):
             self.assertContains(r, texto)
 
     @override_settings(INFERENCE_URL="http://inferencia")
@@ -271,3 +298,38 @@ class EstadoPaginaTests(TestCase):
             r = self.client.get("/estado")
         self.assertEqual(r.status_code, 503)
         self.assertContains(r, "Sin respuesta", status_code=503)
+
+
+class DisenoTests(TestCase):
+    """Guardas del sistema de diseño: sin emojis, sin esquinas redondeadas y sin la paleta azul anterior."""
+
+    def _archivos(self):
+        from pathlib import Path
+        from django.conf import settings
+        raiz = Path(settings.BASE_DIR)
+        yield from (raiz / "peaje" / "templates").rglob("*.html")
+        yield raiz / "static" / "css" / "iap.css"
+        yield raiz / "peaje" / "templatetags" / "iconos.py"
+
+    def test_sin_emojis_bordes_redondeados_ni_azul(self):
+        import re
+        emoji = re.compile("[\\U0001F000-\\U0001FAFF\\u2600-\\u27BF\\u2B00-\\u2BFF\\uFE0F]")
+        radio = re.compile(r"border-radius\s*:\s*([^;}]*)", re.I)
+        cero = re.compile(r"^0(px)?\s*(!important)?\s*$")
+        azul = re.compile(r"#(1d4ed8|1e3a8a|0b1d51|2563eb|3b82f6|60a5fa|93c5fd|bfdbfe|dbeafe|eff6ff|1e40af|c7d7fe|dbe5ff)"
+                          r"|rgba\(\s*(59|96|147|191)\s*,\s*(130|165|197|219)", re.I)
+        for archivo in self._archivos():
+            texto = archivo.read_text(encoding="utf-8")
+            for patron, que in ((emoji, "emoji"), (azul, "color azul")):
+                m = patron.search(texto)
+                self.assertIsNone(m, f"{que} en {archivo.name}: {m and m.group(0)!r}")
+            for valor in radio.findall(texto):
+                self.assertRegex(valor.strip(), cero, f"border-radius no recto en {archivo.name}: {valor!r}")
+
+    def test_confirmacion_y_tablas_apilables(self):
+        entrar(self.client, Usuario.objects.get(email_google="lozogomol@gmail.com"))
+        r = self.client.get("/vehiculos")
+        self.assertContains(r, "data-confirmar=")
+        self.assertContains(r, 'data-label="Placa"')
+        self.assertContains(r, "css/iap.css")
+        self.assertContains(r, 'aria-label="Abrir menú"')

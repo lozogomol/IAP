@@ -12,9 +12,10 @@ class UsuarioAdmin(admin.ModelAdmin):
 
 @admin.register(Vehiculo)
 class VehiculoAdmin(admin.ModelAdmin):
-    list_display = ("placa", "propietario", "categoria", "ejes", "saldo", "activo")
+    list_display = ("placa", "categoria", "ejes", "saldo", "activo")
     list_filter = ("categoria", "activo")
-    search_fields = ("placa", "propietario")
+    search_fields = ("placa",)
+    exclude = ("propietario",)
 
 
 @admin.register(Caseta)

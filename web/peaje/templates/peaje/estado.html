@@ -1,59 +1,46 @@
 {% extends "peaje/base.html" %}
+{% load iconos %}
 {% block titulo %}Estado{% endblock %}
-{% block head %}
-<style>
-  .servicios { display: grid; gap: 1rem; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-bottom: 1rem; }
-  .servicio { display: flex; flex-direction: column; gap: .5rem; }
-  .servicio h2 { margin: 0; display: flex; align-items: center; gap: .6rem; }
-  .luz { width: 14px; height: 14px; flex: 0 0 auto; background: var(--gris); }
-  .luz.ok { background: #16a34a; box-shadow: 0 0 0 3px #dcfce7; }
-  .luz.mal { background: #dc2626; box-shadow: 0 0 0 3px #fee2e2; }
-  .luz.aviso { background: #ea580c; box-shadow: 0 0 0 3px #ffedd5; }
-  .valor-estado { font-weight: 700; }
-  .valor-estado.ok { color: var(--verde); }
-  .valor-estado.mal { color: var(--rojo); }
-  .valor-estado.aviso { color: var(--naranja); }
-  .detalles { list-style: none; margin: .25rem 0 0; padding: 0; font-size: .9rem; }
-  .detalles li { display: flex; justify-content: space-between; gap: .75rem; padding: .35rem 0; border-top: 1px solid var(--borde); }
-  .detalles li span:first-child { color: var(--tenue); }
-  .error { font-size: .82rem; color: var(--tenue); word-break: break-word; }
-  @media (max-width: 860px) { .servicios { grid-template-columns: 1fr; } }
-</style>
-{% endblock %}
 {% block contenido %}
-<div class="encabezado">
-  <h1>Estado del sistema</h1>
-  <a class="boton primario" href="/estado">Volver a comprobar</a>
-</div>
-<div class="servicios">
-  <section class="tarjeta servicio">
-    <h2><span class="luz ok" aria-hidden="true"></span>Web</h2>
-    <span class="valor-estado ok">Funcionando</span>
+<header class="pagina-cab galaxia">
+  <div>
+    <h1>Estado del sistema</h1>
+    <p class="subtitulo">Comprueba si la web, la base de datos y el servidor de inteligencia artificial responden.</p>
+  </div>
+  <div class="acciones">
+    <a class="boton blanco" href="/estado">{% icono "refrescar" %}Volver a comprobar</a>
+  </div>
+</header>
+
+<div class="grilla grilla-3 mb-4">
+  <section class="tarjeta servicio" aria-labelledby="s-web">
+    <div class="servicio-cab">{% icono "monitor" %}<h2 id="s-web">Web</h2><span class="luz ok" aria-hidden="true"></span></div>
+    <span class="texto-estado ok">Funcionando</span>
   </section>
 
-  <section class="tarjeta servicio">
-    <h2><span class="luz {% if bd_ok %}ok{% else %}mal{% endif %}" aria-hidden="true"></span>Base de datos</h2>
-    <span class="valor-estado {% if bd_ok %}ok{% else %}mal{% endif %}">{% if bd_ok %}Funcionando{% else %}Sin conexión{% endif %}</span>
-    {% if bd_ok %}<ul class="detalles"><li><span>Latencia</span><b>{{ datos.latencia_bd_ms }} ms</b></li></ul>{% endif %}
+  <section class="tarjeta servicio" aria-labelledby="s-bd">
+    <div class="servicio-cab">{% icono "base_datos" %}<h2 id="s-bd">Base de datos</h2><span class="luz {% if bd_ok %}ok{% else %}mal{% endif %}" aria-hidden="true"></span></div>
+    <span class="texto-estado {% if bd_ok %}ok{% else %}mal{% endif %}">{% if bd_ok %}Funcionando{% else %}Sin conexión{% endif %}</span>
+    {% if bd_ok %}<ul class="detalles"><li><span>Latencia</span><b class="num">{{ datos.latencia_bd_ms }} ms</b></li></ul>{% endif %}
   </section>
 
-  <section class="tarjeta servicio">
+  <section class="tarjeta servicio" aria-labelledby="s-ia">
     {% if datos.inferencia == "ok" %}
-      <h2><span class="luz ok" aria-hidden="true"></span>Inferencia</h2>
-      <span class="valor-estado ok">Funcionando</span>
+      <div class="servicio-cab">{% icono "chip" %}<h2 id="s-ia">Inferencia</h2><span class="luz ok" aria-hidden="true"></span></div>
+      <span class="texto-estado ok">Funcionando</span>
       <ul class="detalles">
-        <li><span>Latencia</span><b>{{ datos.latencia_ms }} ms</b></li>
-        {% for nombre, estado in modelos %}
-        <li><span>{{ nombre }}</span><b class="valor-estado {% if estado == 'cargado' %}ok{% else %}aviso{% endif %}">{{ estado|capfirst }}</b></li>
+        <li><span>Latencia</span><b class="num">{{ datos.latencia_ms }} ms</b></li>
+        {% for nombre, texto, clase in modelos %}
+        <li><span>{{ nombre }}</span><b class="texto-estado {{ clase }}">{{ texto }}</b></li>
         {% endfor %}
       </ul>
     {% elif datos.inferencia == "caida" %}
-      <h2><span class="luz mal" aria-hidden="true"></span>Inferencia</h2>
-      <span class="valor-estado mal">Sin respuesta</span>
-      {% if datos.error %}<p class="error">{{ datos.error }}</p>{% endif %}
+      <div class="servicio-cab">{% icono "chip" %}<h2 id="s-ia">Inferencia</h2><span class="luz mal" aria-hidden="true"></span></div>
+      <span class="texto-estado mal">Sin respuesta</span>
+      {% if datos.error %}<p class="ayuda" style="overflow-wrap:anywhere">{{ datos.error }}</p>{% endif %}
     {% else %}
-      <h2><span class="luz aviso" aria-hidden="true"></span>Inferencia</h2>
-      <span class="valor-estado aviso">{{ datos.inferencia|capfirst }}</span>
+      <div class="servicio-cab">{% icono "chip" %}<h2 id="s-ia">Inferencia</h2><span class="luz aviso" aria-hidden="true"></span></div>
+      <span class="texto-estado aviso">{{ datos.inferencia|capfirst }}</span>
     {% endif %}
   </section>
 </div>

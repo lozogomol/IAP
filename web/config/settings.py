@@ -96,9 +96,13 @@ LOGIN_URL = "/login"
 JWT_SECRET = os.environ.get("JWT_SECRET", SECRET_KEY)
 JWT_HORAS = int(os.environ.get("JWT_HORAS", "12"))
 
+# Frames de la cámara (modo caseta) y fotos de consulta
+DATA_UPLOAD_MAX_MEMORY_SIZE = 6 * 1024 * 1024
+IMAGEN_MAX_BYTES = 5 * 1024 * 1024
+
 REST_FRAMEWORK = {
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
-    "DEFAULT_AUTHENTICATION_CLASSES": ["peaje.auth.JWTAutenticacion"],
+    "DEFAULT_AUTHENTICATION_CLASSES": ["peaje.auth.JWTAutenticacion", "peaje.auth.SesionAutenticacion"],
     # Todo exige autenticación; las rutas públicas usan @permission_classes([AllowAny]).
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],
     "UNAUTHENTICATED_USER": None,

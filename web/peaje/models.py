@@ -19,6 +19,9 @@ class Usuario(models.Model):
     nombre = models.CharField(max_length=120)
     rol = models.CharField(max_length=10, choices=ROLES, default="operador")
     activo = models.BooleanField(default=True)
+    # Solicitud de acceso hecha desde /acceso-denegado: queda activo=False hasta que un admin la apruebe.
+    pendiente = models.BooleanField(default=False)
+    solicitado_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = "usuarios"
@@ -118,3 +121,21 @@ class Alerta(models.Model):
 
     def __str__(self):
         return f"{self.get_tipo_display()} · {self.paso.placa_normalizada}"
+
+
+class LecturaPlaca(models.Model):
+    """Lectura de placa de un frame (modo caseta). Se acumulan unos segundos para votar antes de registrar el paso."""
+
+    caseta = models.ForeignKey(Caseta, on_delete=models.CASCADE, related_name="lecturas")
+    placa = models.CharField(max_length=10)
+    confianza = models.FloatField(null=True, blank=True)  # 0..1
+    categoria = models.CharField(max_length=10, choices=CATEGORIAS, blank=True)
+    ejes = models.PositiveSmallIntegerField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        db_table = "lecturas_placa"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.placa} · {self.caseta_id} · {self.created_at:%H:%M:%S}"

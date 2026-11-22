@@ -2,63 +2,176 @@
 <html lang="es">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% block titulo %}IAP{% endblock %} · Peaje IAP</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#02040d">
+  <title>{% block titulo %}IAP{% endblock %} · IAP Peaje</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <style>
     :root {
-      --fondo: #0f172a; --panel: #1e293b; --borde: #334155; --texto: #e2e8f0;
-      --tenue: #94a3b8; --acento: #38bdf8; --peligro: #f87171; --ok: #4ade80;
+      --negro: #02040d; --nebula-1: #0b1d51; --nebula-2: #1e3a8a; --nebula-3: #3b82f6;
+      --vidrio: rgba(10, 15, 35, 0.7); --vidrio-fuerte: rgba(10, 15, 35, 0.86);
+      --borde: rgba(96, 165, 250, 0.22); --borde-fuerte: rgba(96, 165, 250, 0.5);
+      --texto: #f8fafc; --tenue: #a5b4cf; --acento: #60a5fa; --acento-vivo: #93c5fd;
+      --ok: #4ade80; --aviso: #fb923c; --peligro: #f87171;
+      --radio: 16px;
     }
     * { box-sizing: border-box; }
-    body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
-           background: var(--fondo); color: var(--texto); line-height: 1.5; }
-    a { color: var(--acento); text-decoration: none; }
-    header { background: var(--panel); border-bottom: 1px solid var(--borde); position: sticky; top: 0; z-index: 10; }
+    /* Sin fondo en <html>: así el fondo de <body> pasa al lienzo y las estrellas (z-index:-1) quedan encima. */
+    body {
+      margin: 0; min-height: 100vh; color: var(--texto); line-height: 1.55;
+      font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      -webkit-font-smoothing: antialiased;
+      background-color: var(--negro);
+      background-image:
+        radial-gradient(ellipse 70% 55% at 15% 10%, rgba(30, 58, 138, 0.55), transparent 70%),
+        radial-gradient(ellipse 60% 50% at 90% 30%, rgba(59, 130, 246, 0.22), transparent 70%),
+        radial-gradient(ellipse 80% 60% at 60% 100%, rgba(11, 29, 81, 0.85), transparent 70%),
+        radial-gradient(ellipse 40% 30% at 40% 55%, rgba(30, 58, 138, 0.25), transparent 75%);
+      background-attachment: fixed;
+    }
+
+    /* ---------- Campo de estrellas (CSS puro, 3 capas con distinta densidad y velocidad) ---------- */
+    .cielo { position: fixed; inset: 0; z-index: -1; pointer-events: none; overflow: hidden; }
+    /* Cada capa sube un tile y se desplaza exactamente un tile: el bucle no tiene salto. */
+    .cielo span { position: absolute; left: 0; right: 0; bottom: 0; top: calc(-1 * var(--tile)); background-repeat: repeat;
+                  background-size: var(--tile) var(--tile); will-change: transform; }
+    .cielo .e1 {
+      background-image:
+        radial-gradient(1px 1px at 20px 30px, #fff, transparent),
+        radial-gradient(1px 1px at 140px 80px, rgba(255,255,255,.8), transparent),
+        radial-gradient(1px 1px at 90px 160px, #fff, transparent),
+        radial-gradient(1px 1px at 200px 220px, rgba(255,255,255,.7), transparent),
+        radial-gradient(1px 1px at 260px 40px, rgba(191,219,254,.9), transparent),
+        radial-gradient(1px 1px at 50px 250px, rgba(255,255,255,.6), transparent);
+      --tile: 300px; opacity: .7;
+      animation: deriva 120s linear infinite, parpadeo 7s ease-in-out infinite alternate;
+    }
+    .cielo .e2 {
+      background-image:
+        radial-gradient(1.5px 1.5px at 60px 120px, #fff, transparent),
+        radial-gradient(1.5px 1.5px at 310px 60px, rgba(191,219,254,.95), transparent),
+        radial-gradient(1.5px 1.5px at 400px 330px, #fff, transparent),
+        radial-gradient(1.5px 1.5px at 180px 410px, rgba(255,255,255,.85), transparent);
+      --tile: 480px; opacity: .8;
+      animation: deriva 260s linear infinite, parpadeo 11s ease-in-out infinite alternate-reverse;
+    }
+    .cielo .e3 {
+      background-image:
+        radial-gradient(2px 2px at 120px 200px, #fff, transparent),
+        radial-gradient(2.5px 2.5px at 560px 90px, rgba(147,197,253,1), transparent),
+        radial-gradient(2px 2px at 420px 520px, #fff, transparent);
+      --tile: 700px;
+      filter: drop-shadow(0 0 3px rgba(147, 197, 253, .9));
+      animation: deriva 480s linear infinite, parpadeo 5s ease-in-out infinite alternate;
+    }
+    @keyframes deriva { from { transform: translateY(0); } to { transform: translateY(var(--tile)); } }
+    @keyframes parpadeo { 0% { opacity: .35; } 50% { opacity: .9; } 100% { opacity: .55; } }
+    @media (prefers-reduced-motion: reduce) {
+      .cielo span { animation: none !important; }
+      *, *::before, *::after { transition: none !important; animation-duration: 0s !important; }
+    }
+
+    a { color: var(--acento-vivo); text-decoration: none; }
+    a:hover { color: #fff; }
+    :focus-visible { outline: 2px solid var(--acento-vivo); outline-offset: 2px; }
+
+    /* ---------- Cabecera ---------- */
+    header {
+      background: rgba(2, 4, 13, 0.72); border-bottom: 1px solid var(--borde);
+      -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+      position: sticky; top: 0; z-index: 10;
+    }
     .barra { max-width: 1100px; margin: 0 auto; padding: .6rem 1rem; display: flex; align-items: center;
              gap: 1rem; flex-wrap: wrap; }
-    .marca { font-weight: 700; color: var(--texto); letter-spacing: .02em; }
-    nav { display: flex; gap: .25rem; flex-wrap: wrap; flex: 1; }
-    nav a { color: var(--tenue); padding: .35rem .65rem; border-radius: 6px; font-size: .95rem; }
-    nav a:hover { color: var(--texto); background: #273449; }
-    nav a.activo { color: var(--texto); background: #273449; }
+    .marca { display: flex; align-items: center; gap: .5rem; font-weight: 800; color: var(--texto);
+             letter-spacing: .04em; }
+    .marca svg { width: 26px; height: 26px; filter: drop-shadow(0 0 6px rgba(59,130,246,.7)); }
+    nav { display: flex; gap: .2rem; flex-wrap: wrap; flex: 1; }
+    nav a { color: var(--tenue); padding: .4rem .7rem; border-radius: 999px; font-size: .93rem; font-weight: 500; }
+    nav a:hover { color: var(--texto); background: rgba(59, 130, 246, 0.14); }
+    nav a.activo { color: #fff; background: rgba(59, 130, 246, 0.26); box-shadow: inset 0 0 0 1px var(--borde-fuerte); }
     .usuario { display: flex; align-items: center; gap: .6rem; font-size: .9rem; margin-left: auto; }
-    .rol { font-size: .75rem; text-transform: uppercase; letter-spacing: .05em; padding: .1rem .5rem;
+    .rol { font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; padding: .1rem .55rem;
            border: 1px solid var(--borde); border-radius: 999px; color: var(--tenue); }
-    .rol.admin { color: var(--acento); border-color: var(--acento); }
-    .boton { display: inline-block; background: transparent; color: var(--texto); border: 1px solid var(--borde);
-             border-radius: 6px; padding: .3rem .7rem; font: inherit; font-size: .9rem; cursor: pointer; }
-    .boton:hover { border-color: var(--tenue); }
-    #menu-btn { display: none; }
-    main { max-width: 1100px; margin: 0 auto; padding: 1.5rem 1rem; }
-    .tarjeta { background: var(--panel); border: 1px solid var(--borde); border-radius: 10px; padding: 1.25rem; }
-    h1 { font-size: 1.5rem; margin: 0 0 1rem; }
-    .tenue { color: var(--tenue); }
+    .rol.admin { color: var(--acento-vivo); border-color: var(--borde-fuerte); }
 
-    @media (max-width: 720px) {
-      #menu-btn { display: inline-block; margin-left: auto; }
+    /* ---------- Componentes ---------- */
+    .boton {
+      display: inline-flex; align-items: center; justify-content: center; gap: .4rem;
+      background: rgba(15, 23, 42, 0.6); color: var(--texto); border: 1px solid var(--borde);
+      border-radius: 999px; padding: .4rem .9rem; font: inherit; font-size: .9rem; font-weight: 500;
+      cursor: pointer; transition: border-color .15s, background .15s, box-shadow .15s;
+    }
+    .boton:hover { border-color: var(--borde-fuerte); background: rgba(30, 58, 138, 0.45); color: #fff; }
+    .boton:disabled { opacity: .5; cursor: not-allowed; }
+    .boton.primario {
+      background: linear-gradient(135deg, #2563eb, #3b82f6); border-color: rgba(147,197,253,.6);
+      box-shadow: 0 0 18px rgba(59, 130, 246, 0.45); font-weight: 600;
+    }
+    .boton.primario:hover { box-shadow: 0 0 26px rgba(96, 165, 250, 0.7); }
+    .boton.peligro { border-color: rgba(248, 113, 113, .5); color: #fecaca; }
+    .boton.peligro:hover { background: rgba(127, 29, 29, .45); }
+    .boton.grande { padding: .75rem 1.4rem; font-size: 1.05rem; }
+    #menu-btn { display: none; }
+    main { max-width: 1100px; margin: 0 auto; padding: 1.5rem 1rem 3rem; }
+    .tarjeta {
+      background: var(--vidrio); border: 1px solid var(--borde); border-radius: var(--radio); padding: 1.25rem;
+      -webkit-backdrop-filter: blur(16px) saturate(140%); backdrop-filter: blur(16px) saturate(140%);
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(147, 197, 253, 0.08);
+    }
+    h1 { font-size: 1.6rem; margin: 0 0 1rem; font-weight: 700; letter-spacing: -.01em; }
+    h2 { font-size: 1.15rem; margin: 0 0 .75rem; font-weight: 600; }
+    .tenue { color: var(--tenue); }
+    input, select {
+      font: inherit; color: var(--texto); background: rgba(2, 6, 23, 0.7); border: 1px solid var(--borde);
+      border-radius: 10px; padding: .55rem .75rem; min-height: 42px;
+    }
+    input:focus, select:focus { outline: none; border-color: var(--acento); box-shadow: 0 0 0 3px rgba(59,130,246,.25); }
+    select option { background: #0a0f23; }
+    .mensajes { list-style: none; padding: 0; margin: 0 0 1rem; display: grid; gap: .5rem; }
+    .mensajes li { padding: .6rem .9rem; border-radius: 10px; border: 1px solid var(--borde); background: var(--vidrio-fuerte); }
+    .mensajes .success { border-color: rgba(74, 222, 128, .5); }
+    .mensajes .error { border-color: rgba(248, 113, 113, .6); }
+    .mensajes .warning { border-color: rgba(251, 146, 60, .6); }
+    .estado-cobrado, .estado-habilitada { color: var(--ok); }
+    .estado-saldo_insuficiente { color: var(--aviso); }
+    .estado-no_registrada, .estado-error_lectura { color: var(--peligro); }
+    .estado-inactiva { color: var(--tenue); }
+
+    @media (max-width: 760px) {
+      #menu-btn { display: inline-flex; margin-left: auto; }
       nav, .usuario { display: none; width: 100%; }
       nav { flex-direction: column; }
-      nav a { padding: .6rem .5rem; }
+      nav a { padding: .65rem .8rem; border-radius: 10px; }
       .usuario { margin-left: 0; padding: .5rem 0 .25rem; border-top: 1px solid var(--borde); flex-wrap: wrap; }
       header.abierto nav, header.abierto .usuario { display: flex; }
+      h1 { font-size: 1.35rem; }
     }
   </style>
   {% block head %}{% endblock %}
 </head>
 <body>
+  <div class="cielo" aria-hidden="true"><span class="e1"></span><span class="e2"></span><span class="e3"></span></div>
   {% block cabecera %}
   <header id="cabecera">
     <div class="barra">
-      <a class="marca" href="/">Peaje IAP</a>
+      <a class="marca" href="/">{% include "peaje/_icono.html" %}IAP</a>
       <button id="menu-btn" class="boton" type="button" aria-label="Abrir menú" aria-expanded="false">☰</button>
       {% with ruta=request.path %}
       <nav>
         {% if usuario_sesion %}
         <a href="/" {% if ruta == "/" %}class="activo"{% endif %}>Panel</a>
+        <a href="/caseta" {% if ruta == "/caseta" %}class="activo"{% endif %}>Caseta</a>
+        <a href="/consulta" {% if ruta == "/consulta" %}class="activo"{% endif %}>Consulta</a>
         <a href="/vehiculos" {% if ruta == "/vehiculos" %}class="activo"{% endif %}>Vehículos</a>
         <a href="/pasos" {% if ruta == "/pasos" %}class="activo"{% endif %}>Pasos</a>
         <a href="/alertas" {% if ruta == "/alertas" %}class="activo"{% endif %}>Alertas</a>
         <a href="/chat" {% if ruta == "/chat" %}class="activo"{% endif %}>Chat</a>
+        {% if usuario_sesion.rol == "admin" %}
+        <a href="/usuarios" {% if ruta == "/usuarios" %}class="activo"{% endif %}>Usuarios</a>
+        {% endif %}
         {% endif %}
         <a href="/estado" {% if ruta == "/estado" %}class="activo"{% endif %}>Estado</a>
       </nav>
@@ -75,7 +188,14 @@
     </div>
   </header>
   {% endblock %}
-  <main>{% block contenido %}{% endblock %}</main>
+  <main>
+    {% if messages %}
+    <ul class="mensajes" role="status">
+      {% for m in messages %}<li class="{{ m.tags }}">{{ m }}</li>{% endfor %}
+    </ul>
+    {% endif %}
+    {% block contenido %}{% endblock %}
+  </main>
   <script>
     (function () {
       var btn = document.getElementById("menu-btn"), cab = document.getElementById("cabecera");
@@ -85,6 +205,12 @@
         btn.setAttribute("aria-expanded", abierto ? "true" : "false");
       });
     })();
+    function csrfToken() {
+      var el = document.querySelector("[name=csrfmiddlewaretoken]");
+      if (el) return el.value;
+      var m = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/);
+      return m ? decodeURIComponent(m[1]) : "";
+    }
   </script>
   {% block scripts %}{% endblock %}
 </body>

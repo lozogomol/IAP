@@ -28,6 +28,11 @@ class TokenGoogleInvalido(Exception):
 
 def verificar_token_google(credential):
     """Verifica el ID token de Google (firma, expiración, emisor y audience) y devuelve el email."""
+    return datos_token_google(credential)[0]
+
+
+def datos_token_google(credential):
+    """Como verificar_token_google, pero devuelve (email, nombre). El nombre cae al usuario del email."""
     if not settings.GOOGLE_CLIENT_ID:
         raise TokenGoogleInvalido("GOOGLE_CLIENT_ID no está configurado")
     try:
@@ -37,7 +42,8 @@ def verificar_token_google(credential):
     email = (info.get("email") or "").strip().lower()
     if not email or not info.get("email_verified", False):
         raise TokenGoogleInvalido("La cuenta de Google no tiene un email verificado")
-    return email
+    nombre = (info.get("name") or "").strip()[:120] or email.split("@")[0]
+    return email, nombre
 
 
 def usuario_autorizado(email):
@@ -49,6 +55,8 @@ def usuario_autorizado(email):
 
 def iniciar_sesion(request, usuario):
     request.session.cycle_key()  # evita fijación de sesión
+    for clave in ("email_rechazado", "nombre_rechazado"):
+        request.session.pop(clave, None)
     request.session.update({
         "usuario_id": usuario.id,
         "nombre": usuario.nombre,
@@ -68,10 +76,28 @@ def usuario_actual(request):
     return {"usuario_sesion": None}
 
 
+def refrescar_sesion(request):
+    """Revalida la sesión contra la BD: si el usuario fue desactivado la cierra; si cambió su rol lo actualiza.
+
+    Devuelve el Usuario activo o None.
+    """
+    sesion = getattr(request, "session", None)
+    uid = sesion.get("usuario_id") if sesion is not None else None
+    if not uid:
+        return None
+    usuario = Usuario.objects.filter(pk=uid, activo=True).first()
+    if usuario is None:
+        cerrar_sesion(request)
+        return None
+    if request.session.get("rol") != usuario.rol or request.session.get("nombre") != usuario.nombre:
+        request.session.update({"rol": usuario.rol, "nombre": usuario.nombre})
+    return usuario
+
+
 def login_requerido(vista):
     @wraps(vista)
     def envoltura(request, *args, **kwargs):
-        if not request.session.get("usuario_id"):
+        if refrescar_sesion(request) is None:
             return HttpResponseRedirect(f"{settings.LOGIN_URL}?{urlencode({'next': request.get_full_path()})}")
         return vista(request, *args, **kwargs)
     return envoltura
@@ -130,6 +156,26 @@ class JWTAutenticacion(authentication.BaseAuthentication):
 
     def authenticate_header(self, request):
         return self.palabra  # hace que DRF responda 401 (no 403) sin token
+
+
+class SesionAutenticacion(authentication.SessionAuthentication):
+    """Sesión web de IAP (la del login con Google) para usar la API desde el navegador. Exige CSRF."""
+
+    def authenticate(self, request):
+        usuario = refrescar_sesion(request._request)
+        if usuario is None:
+            return None
+        self.enforce_csrf(request)
+        usuario.is_authenticated = True
+        return usuario, None
+
+
+class SesionAutenticacionEsquema(OpenApiAuthenticationExtension):
+    target_class = "peaje.auth.SesionAutenticacion"
+    name = "sesionWeb"
+
+    def get_security_definition(self, auto_schema):
+        return {"type": "apiKey", "in": "cookie", "name": settings.SESSION_COOKIE_NAME}
 
 
 class JWTAutenticacionEsquema(OpenApiAuthenticationExtension):

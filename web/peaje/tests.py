@@ -96,6 +96,13 @@ class DatosInicialesTests(TestCase):
 VERIFICAR = "peaje.auth.id_token.verify_oauth2_token"
 
 
+def entrar(client, usuario):
+    """Abre una sesión web para `usuario` sin pasar por Google."""
+    s = client.session
+    s.update({"usuario_id": usuario.id, "nombre": usuario.nombre, "email": usuario.email_google, "rol": usuario.rol})
+    s.save()
+
+
 @override_settings(GOOGLE_CLIENT_ID="cliente-test.apps.googleusercontent.com")
 class LoginGoogleWebTests(TestCase):
     def setUp(self):
@@ -174,23 +181,34 @@ class PaginasProtegidasTests(TestCase):
             self.assertTrue(r["Location"].startswith("/login?next="), ruta)
 
     def test_con_sesion_muestra_barra(self):
-        s = self.client.session
-        s.update({"usuario_id": 1, "nombre": "Ana Operadora", "email": "a@x.com", "rol": "operador"})
-        s.save()
+        u = Usuario.objects.create(email_google="a@x.com", nombre="Ana Operadora", rol="operador")
+        entrar(self.client, u)
         r = self.client.get("/vehiculos")
-        for texto in ("Panel", "Vehículos", "Pasos", "Alertas", "Chat", "Estado", "Ana Operadora", "operador", "Salir"):
+        for texto in ("Panel", "Caseta", "Consulta", "Vehículos", "Pasos", "Alertas", "Chat", "Estado",
+                      "Ana Operadora", "operador", "Salir"):
             self.assertContains(r, texto)
+        self.assertNotContains(r, 'href="/usuarios"')
 
     def test_rol_requerido(self):
         vista = rol_requerido("admin")(lambda request: HttpResponse("ok"))
         rf = RequestFactory()
         for rol, esperado in (("admin", 200), ("operador", 403)):
+            u = Usuario.objects.create(email_google=f"{rol}@x.com", nombre=rol, rol=rol)
             req = rf.get("/x")
-            req.session = {"usuario_id": 1, "rol": rol}
+            req.session = self.client.session
+            req.session.update({"usuario_id": u.id, "rol": "admin"})  # el rol real se lee de la BD
             self.assertEqual(vista(req).status_code, esperado, rol)
         req = rf.get("/x")
-        req.session = {}
+        req.session = self.client.session
         self.assertEqual(vista(req).status_code, 302)
+
+    def test_usuario_desactivado_pierde_la_sesion(self):
+        u = Usuario.objects.create(email_google="b@x.com", nombre="Beto", rol="operador")
+        entrar(self.client, u)
+        self.assertEqual(self.client.get("/caseta").status_code, 200)
+        Usuario.objects.filter(pk=u.pk).update(activo=False)
+        self.assertEqual(self.client.get("/caseta").status_code, 302)
+        self.assertNotIn("usuario_id", self.client.session)
 
 
 @override_settings(INFERENCE_URL="")

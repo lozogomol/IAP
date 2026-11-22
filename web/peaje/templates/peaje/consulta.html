@@ -1,0 +1,156 @@
+{% extends "peaje/base.html" %}
+{% block titulo %}Consulta de placa{% endblock %}
+{% block head %}
+<style>
+  .formas { display: grid; gap: 1rem; grid-template-columns: 1fr 1fr; margin-bottom: 1rem; }
+  .fila { display: flex; gap: .5rem; flex-wrap: wrap; }
+  .fila input { flex: 1 1 160px; text-transform: uppercase; letter-spacing: .08em; font-weight: 600; font-size: 1.1rem; }
+  .fila .boton { min-height: 44px; }
+  #foto { display: none; }
+  .foto-btn { width: 100%; min-height: 44px; }
+  #vista { display: none; max-width: 100%; max-height: 220px; margin-top: .75rem; border-radius: 12px;
+           border: 1px solid var(--borde); }
+  #resultado { display: none; text-align: center; }
+  .placa-grande { font-size: clamp(2.2rem, 10vw, 3.4rem); font-weight: 800; letter-spacing: .08em; margin: 0; }
+  .estado-grande { display: inline-block; font-size: 1.1rem; font-weight: 700; padding: .35rem 1rem;
+                   border-radius: 999px; border: 1px solid currentColor; margin: .5rem 0 1rem; }
+  .datos { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: .5rem; text-align: left; }
+  .dato { background: rgba(2,6,23,.55); border: 1px solid var(--borde); border-radius: 12px; padding: .6rem .75rem; }
+  .dato b { display: block; }
+  .dato span { font-size: .75rem; color: var(--tenue); text-transform: uppercase; letter-spacing: .05em; }
+  .sugerencias { margin-top: 1rem; }
+  .sugerencias .boton { margin: .25rem; letter-spacing: .06em; font-weight: 600; }
+  #mensaje { min-height: 1.4em; }
+  @media (max-width: 760px) { .formas { grid-template-columns: 1fr; } }
+</style>
+{% endblock %}
+{% block contenido %}
+<h1>Consulta de placa</h1>
+<div class="formas">
+  <form id="form-texto" class="tarjeta" autocomplete="off">
+    <h2><label for="placa">Escribir placa</label></h2>
+    <div class="fila">
+      <input id="placa" name="placa" maxlength="12" placeholder="Ej. 2451KTP" required inputmode="text">
+      <button class="boton primario" type="submit">Consultar</button>
+    </div>
+  </form>
+  <div class="tarjeta">
+    <h2>Foto de la placa</h2>
+    <label class="boton foto-btn" for="foto">📷 Tomar o subir foto</label>
+    <input id="foto" type="file" accept="image/*" capture="environment">
+    <img id="vista" alt="Foto enviada">
+  </div>
+</div>
+<p id="mensaje" class="tenue" role="status"></p>
+<section id="resultado" class="tarjeta" aria-live="polite">
+  <p id="r-placa" class="placa-grande"></p>
+  <div id="r-estado" class="estado-grande"></div>
+  <div id="r-datos" class="datos"></div>
+  <div id="r-sugerencias" class="sugerencias"></div>
+</section>
+{% csrf_token %}
+{% endblock %}
+{% block scripts %}
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var ANCHO_MAX = 1280;
+
+  function msg(t) { $("mensaje").textContent = t || ""; }
+
+  function dato(valor, etiqueta) {
+    var d = document.createElement("div"); d.className = "dato";
+    var b = document.createElement("b"); b.textContent = valor;
+    var s = document.createElement("span"); s.textContent = etiqueta;
+    d.appendChild(b); d.appendChild(s);
+    return d;
+  }
+
+  function mostrar(c, extra) {
+    $("resultado").style.display = "block";
+    $("r-placa").textContent = c.placa || "—";
+    $("r-estado").textContent = c.estado_texto;
+    $("r-estado").className = "estado-grande estado-" + c.estado;
+    var datos = $("r-datos"); datos.innerHTML = "";
+    if (c.vehiculo) {
+      datos.appendChild(dato(c.vehiculo.propietario, "Propietario"));
+      datos.appendChild(dato(c.vehiculo.categoria_texto, "Categoría"));
+      datos.appendChild(dato(c.vehiculo.ejes, "Ejes"));
+      datos.appendChild(dato("Bs " + c.vehiculo.saldo, "Saldo"));
+      datos.appendChild(dato(c.tarifa != null ? "Bs " + c.tarifa : "Sin tarifa", "Tarifa"));
+    }
+    if (extra) datos.appendChild(dato(extra, "Lectura de la foto"));
+    var sug = $("r-sugerencias"); sug.innerHTML = "";
+    if (c.sugerencias && c.sugerencias.length) {
+      var p = document.createElement("p"); p.className = "tenue"; p.style.margin = "0 0 .25rem";
+      p.textContent = "¿Quisiste decir…?";
+      sug.appendChild(p);
+      c.sugerencias.forEach(function (s) {
+        var b = document.createElement("button"); b.type = "button"; b.className = "boton"; b.textContent = s;
+        b.addEventListener("click", function () { $("placa").value = s; consultar(s); });
+        sug.appendChild(b);
+      });
+    }
+  }
+
+  function json(r) { return r.json().catch(function () { return {}; }).then(function (d) { return [r, d]; }); }
+
+  function consultar(placa) {
+    msg("Consultando…");
+    fetch("/api/v1/vehiculos/consulta?placa=" + encodeURIComponent(placa), { credentials: "same-origin" })
+      .then(json)
+      .then(function (par) {
+        if (!par[0].ok) { msg(par[1].detalle || "Error " + par[0].status); return; }
+        msg(""); mostrar(par[1]);
+      })
+      .catch(function () { msg("Error de red."); });
+  }
+
+  $("form-texto").addEventListener("submit", function (e) {
+    e.preventDefault();
+    var p = $("placa").value.trim();
+    if (p) consultar(p);
+  });
+
+  function reducir(archivo) {
+    return new Promise(function (ok, mal) {
+      var img = new Image(), url = URL.createObjectURL(archivo);
+      img.onload = function () {
+        var esc = Math.min(1, ANCHO_MAX / img.naturalWidth), c = document.createElement("canvas");
+        c.width = Math.round(img.naturalWidth * esc); c.height = Math.round(img.naturalHeight * esc);
+        c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+        URL.revokeObjectURL(url);
+        c.toBlob(function (b) { b ? ok(b) : mal(new Error("No se pudo procesar la imagen.")); }, "image/jpeg", 0.85);
+      };
+      img.onerror = function () { URL.revokeObjectURL(url); mal(new Error("Formato de imagen no soportado.")); };
+      img.src = url;
+    });
+  }
+
+  $("foto").addEventListener("change", function () {
+    var archivo = this.files && this.files[0];
+    if (!archivo) return;
+    $("vista").src = URL.createObjectURL(archivo); $("vista").style.display = "block";
+    msg("Leyendo la placa…");
+    reducir(archivo).then(function (blob) {
+      var datos = new FormData(); datos.append("imagen", blob, "foto.jpg");
+      return fetch("/api/v1/placas/leer", {
+        method: "POST", credentials: "same-origin", body: datos, headers: { "X-CSRFToken": csrfToken() }
+      }).then(json);
+    }).then(function (par) {
+      var r = par[0], d = par[1];
+      if (!r.ok) { msg(d.detalle || "Error " + r.status); return; }
+      if (!d.consulta) {
+        msg("No se encontró una placa legible en la foto. Acércate más o escríbela a mano.");
+        $("resultado").style.display = "none"; return;
+      }
+      var l = d.lecturas[0];
+      msg(d.lecturas.length > 1 ? "Se detectaron " + d.lecturas.length + " placas; se muestra la más clara." : "");
+      $("placa").value = l.placa;
+      mostrar(d.consulta, l.texto_leido + (l.confianza != null ? " · " + Math.round(l.confianza * 100) + "%" : ""));
+    }).catch(function (e) { msg(e && e.message ? e.message : "Error de red."); })
+      .then(function () { $("foto").value = ""; });
+  });
+})();
+</script>
+{% endblock %}

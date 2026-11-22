@@ -1,0 +1,212 @@
+{% extends "peaje/base.html" %}
+{% block titulo %}Modo caseta{% endblock %}
+{% block head %}
+<style>
+  .controles { display: flex; gap: .6rem; flex-wrap: wrap; align-items: center; margin-bottom: 1rem; }
+  .controles select { flex: 1 1 220px; }
+  .controles .boton { flex: 0 0 auto; min-width: 130px; min-height: 46px; }
+  .rejilla { display: grid; gap: 1rem; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); align-items: start; }
+  .video-caja { position: relative; aspect-ratio: 4 / 3; border-radius: var(--radio); overflow: hidden;
+                background: #000; border: 1px solid var(--borde); }
+  .video-caja video { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .video-caja .vacio { position: absolute; inset: 0; display: grid; place-items: center; text-align: center;
+                       padding: 1rem; color: var(--tenue); }
+  .vivo { position: absolute; top: .6rem; left: .6rem; display: none; align-items: center; gap: .4rem;
+          padding: .2rem .6rem; border-radius: 999px; background: rgba(2,4,13,.7); font-size: .8rem; font-weight: 600; }
+  .vivo::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--peligro);
+                  box-shadow: 0 0 8px var(--peligro); }
+  .grabando .vivo { display: inline-flex; }
+  .resultado { text-align: center; }
+  .placa-grande { font-size: clamp(2.4rem, 11vw, 4rem); font-weight: 800; letter-spacing: .08em; margin: .25rem 0;
+                  font-variant-numeric: tabular-nums; }
+  .estado-grande { display: inline-block; font-size: 1.15rem; font-weight: 700; padding: .35rem 1rem;
+                   border-radius: 999px; border: 1px solid currentColor; margin-bottom: .75rem; }
+  .datos { display: grid; grid-template-columns: repeat(3, 1fr); gap: .5rem; margin: .5rem 0; }
+  .dato { background: rgba(2,6,23,.55); border: 1px solid var(--borde); border-radius: 12px; padding: .6rem .4rem; }
+  .dato b { display: block; font-size: 1.25rem; }
+  .dato span { font-size: .75rem; color: var(--tenue); text-transform: uppercase; letter-spacing: .05em; }
+  .metricas { display: flex; justify-content: space-between; flex-wrap: wrap; gap: .5rem; font-size: .88rem;
+              color: var(--tenue); margin-top: .75rem; }
+  .metricas b { color: var(--texto); font-variant-numeric: tabular-nums; }
+  #aviso { display: none; margin-bottom: 1rem; border-color: rgba(248,113,113,.6); color: #fecaca; }
+  #aviso.visible { display: block; }
+  #lectura { min-height: 1.4em; font-size: .9rem; }
+  @media (max-width: 760px) {
+    .rejilla { grid-template-columns: 1fr; }
+    .controles .boton { flex: 1 1 100%; }
+  }
+</style>
+{% endblock %}
+{% block contenido %}
+<h1>Modo caseta</h1>
+<div id="aviso" class="tarjeta" role="alert"></div>
+<div class="controles">
+  <label for="caseta" class="tenue" style="flex-basis:100%;font-size:.9rem;margin-bottom:-.3rem">Caseta</label>
+  <select id="caseta">
+    {% for c in casetas %}<option value="{{ c.id }}">{{ c.nombre }}</option>{% endfor %}
+  </select>
+  <button id="btn" class="boton primario" type="button">Iniciar</button>
+</div>
+<div class="rejilla">
+  <div id="video-caja" class="video-caja">
+    <video id="video" playsinline muted autoplay></video>
+    <div id="vacio" class="vacio">Pulsa <b>&nbsp;Iniciar&nbsp;</b> para abrir la cámara trasera.</div>
+    <div class="vivo">EN VIVO · <span id="restante">60</span> s</div>
+  </div>
+  <section class="tarjeta resultado" aria-live="polite">
+    <div class="tenue" style="font-size:.85rem">Último resultado</div>
+    <div id="placa" class="placa-grande">———</div>
+    <div id="estado" class="estado-grande tenue">Sin lecturas</div>
+    <div class="datos">
+      <div class="dato"><b id="categoria">–</b><span>Categoría</span></div>
+      <div class="dato"><b id="ejes">–</b><span>Ejes</span></div>
+      <div class="dato"><b id="tarifa">–</b><span>Tarifa</span></div>
+    </div>
+    <div id="lectura" class="tenue"></div>
+    <div class="metricas">
+      <span>Latencia: <b id="latencia">–</b></span>
+      <span>Peticiones: <b id="contador">0</b></span>
+    </div>
+  </section>
+</div>
+<canvas id="lienzo" hidden></canvas>
+{% csrf_token %}
+{% endblock %}
+{% block scripts %}
+<script>
+(function () {
+  var FPS = 2, CALIDAD = 0.7, ANCHO_MAX = 960, DURACION_S = 60;
+  var ESTADOS = {
+    cobrado: ["Cobrado", "estado-cobrado"],
+    saldo_insuficiente: ["Saldo insuficiente", "estado-saldo_insuficiente"],
+    no_registrada: ["No registrada", "estado-no_registrada"],
+    error_lectura: ["Error de lectura", "estado-error_lectura"]
+  };
+  var $ = function (id) { return document.getElementById(id); };
+  var video = $("video"), lienzo = $("lienzo"), btn = $("btn");
+  var flujo = null, temporizador = null, reloj = null, enCurso = false, enviadas = 0, inicio = 0;
+
+  function aviso(texto) { $("aviso").textContent = texto; $("aviso").classList.toggle("visible", !!texto); }
+
+  function soporte() {
+    if (!window.isSecureContext) {
+      return "La cámara solo funciona con HTTPS. Abre la web con https:// (por ejemplo con el enlace de ngrok o Render).";
+    }
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      return "Este navegador no permite usar la cámara. Prueba con Chrome o Safari actualizados.";
+    }
+    return "";
+  }
+
+  function mensajeError(e) {
+    switch (e && e.name) {
+      case "NotAllowedError": case "SecurityError":
+        return "No hay permiso para usar la cámara. Actívalo en la configuración del navegador (ícono del candado) y vuelve a intentar.";
+      case "NotFoundError": case "OverconstrainedError":
+        return "No se encontró una cámara en este dispositivo.";
+      case "NotReadableError":
+        return "La cámara está siendo usada por otra aplicación. Ciérrala y vuelve a intentar.";
+      default:
+        return "No se pudo abrir la cámara: " + (e && e.message ? e.message : e);
+    }
+  }
+
+  function iniciar() {
+    var problema = soporte();
+    if (problema) { aviso(problema); return; }
+    aviso("");
+    btn.disabled = true;
+    navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } },
+      audio: false
+    }).then(function (s) {
+      flujo = s;
+      video.srcObject = s;
+      return video.play();
+    }).then(function () {
+      $("vacio").style.display = "none";
+      $("video-caja").classList.add("grabando");
+      $("caseta").disabled = true;
+      enviadas = 0; $("contador").textContent = "0";
+      inicio = Date.now();
+      temporizador = setInterval(capturar, 1000 / FPS);
+      reloj = setInterval(tic, 250);
+      tic();
+      btn.textContent = "Detener"; btn.classList.remove("primario"); btn.classList.add("peligro");
+    }).catch(function (e) {
+      detener();
+      aviso(mensajeError(e));
+    }).then(function () { btn.disabled = false; });
+  }
+
+  function detener(motivo) {
+    clearInterval(temporizador); clearInterval(reloj); temporizador = reloj = null;
+    if (flujo) { flujo.getTracks().forEach(function (t) { t.stop(); }); flujo = null; }
+    video.srcObject = null;
+    $("video-caja").classList.remove("grabando");
+    $("vacio").style.display = "";
+    $("caseta").disabled = false;
+    btn.textContent = "Iniciar"; btn.classList.add("primario"); btn.classList.remove("peligro");
+    if (motivo) $("lectura").textContent = motivo;
+  }
+
+  function tic() {
+    var restante = Math.max(0, DURACION_S - Math.floor((Date.now() - inicio) / 1000));
+    $("restante").textContent = restante;
+    if (restante <= 0) detener("Detenido automáticamente tras " + DURACION_S + " s (" + enviadas + " peticiones).");
+  }
+
+  function capturar() {
+    if (enCurso || !flujo || !video.videoWidth) return;  // no se envía si el anterior sigue en curso
+    var escala = Math.min(1, ANCHO_MAX / video.videoWidth);
+    lienzo.width = Math.round(video.videoWidth * escala);
+    lienzo.height = Math.round(video.videoHeight * escala);
+    lienzo.getContext("2d").drawImage(video, 0, 0, lienzo.width, lienzo.height);
+    enCurso = true;
+    lienzo.toBlob(function (blob) {
+      if (!blob || !flujo) { enCurso = false; return; }
+      var datos = new FormData();
+      datos.append("imagen", blob, "frame.jpg");
+      datos.append("caseta_id", $("caseta").value);
+      var t0 = performance.now();
+      enviadas++; $("contador").textContent = enviadas;
+      fetch("/api/v1/pasos/frame", {
+        method: "POST", credentials: "same-origin", body: datos,
+        headers: { "X-CSRFToken": csrfToken() }
+      })
+        .then(function (r) { return r.json().catch(function () { return {}; }).then(function (d) { return [r, d]; }); })
+        .then(function (par) { mostrar(par[0], par[1], Math.round(performance.now() - t0)); })
+        .catch(function () { $("lectura").textContent = "Error de red al enviar el frame."; })
+        .then(function () { enCurso = false; });
+    }, "image/jpeg", CALIDAD);
+  }
+
+  function mostrar(r, d, msCliente) {
+    $("latencia").textContent = msCliente + " ms" + (d.latencia_inferencia_ms != null ? " (IA " + d.latencia_inferencia_ms + " ms)" : "");
+    if (r.status === 401 || r.status === 403) {
+      detener(); aviso("Tu sesión expiró o no tienes permiso. Vuelve a iniciar sesión."); return;
+    }
+    if (!r.ok) { $("lectura").textContent = d.detalle || ("Error " + r.status); return; }
+    if (d.resultado === "sin_placa") { $("lectura").textContent = "Buscando placa…"; return; }
+    if (d.resultado === "leyendo") { $("lectura").textContent = "Leyendo " + d.placa_candidata + "… (confirmando)"; return; }
+    var p = d.paso, e = ESTADOS[p.estado] || [p.estado_texto, ""];
+    $("placa").textContent = p.placa;
+    $("estado").textContent = e[0];
+    $("estado").className = "estado-grande " + e[1];
+    $("categoria").textContent = p.categoria;
+    $("ejes").textContent = p.ejes != null ? p.ejes : "–";
+    $("tarifa").textContent = p.tarifa != null ? "Bs " + p.tarifa : "Bs 0";
+    $("lectura").textContent = d.resultado === "duplicado"
+      ? "Ya registrado hace menos de 60 s (no se cobra de nuevo)."
+      : "Registrado con " + d.votos + " lectura(s)" + (p.nota ? " · " + p.nota : "") +
+        (p.fuente_categoria === "registro" ? " · categoría del registro" : "");
+  }
+
+  btn.addEventListener("click", function () { flujo ? detener("Detenido.") : iniciar(); });
+  document.addEventListener("visibilitychange", function () { if (document.hidden && flujo) detener("Detenido al salir de la página."); });
+  var problema = soporte();
+  if (problema) aviso(problema);
+  if (!$("caseta").options.length) { btn.disabled = true; aviso("No hay casetas registradas."); }
+})();
+</script>
+{% endblock %}

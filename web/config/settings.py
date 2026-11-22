@@ -50,6 +50,7 @@ TEMPLATES = [{
         "django.contrib.auth.context_processors.auth",
         "django.contrib.messages.context_processors.messages",
         "peaje.auth.usuario_actual",
+        "peaje.tiempo_real.config_pusher",
     ]},
 }]
 WSGI_APPLICATION = "config.wsgi.application"
@@ -113,3 +114,13 @@ SPECTACULAR_SETTINGS = {
     "VERSION": "1.0.0",
     "SERVE_INCLUDE_SCHEMA": False,
 }
+
+# --- Tiempo real (Pusher). Sin estas variables el panel se actualiza consultando cada pocos segundos. ---
+PUSHER_APP_ID = os.environ.get("PUSHER_APP_ID", "")
+PUSHER_KEY = os.environ.get("PUSHER_KEY", "")
+PUSHER_SECRET = os.environ.get("PUSHER_SECRET", "")
+PUSHER_CLUSTER = os.environ.get("PUSHER_CLUSTER", "us2")
+
+# --- Capturas de los pasos: Cloudinary si CLOUDINARY_URL (cloudinary://key:secret@nube); si no, disco local. ---
+CLOUDINARY_URL = os.environ.get("CLOUDINARY_URL", "")
+MEDIA_ROOT = BASE_DIR / "media"

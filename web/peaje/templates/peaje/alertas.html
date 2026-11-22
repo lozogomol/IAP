@@ -1,0 +1,71 @@
+{% extends "peaje/base.html" %}
+{% block titulo %}Alertas{% endblock %}
+{% block head %}
+<style>
+  .filtros { display: flex; gap: 0; margin-bottom: 1rem; }
+  .filtros a { padding: .5rem 1rem; border: 1px solid var(--azul); color: var(--azul); text-decoration: none; font-weight: 600; font-size: .92rem; }
+  .filtros a + a { border-left: 0; }
+  .filtros a.activo { background: var(--azul); color: #fff; }
+  .contador { display: inline-block; min-width: 1.5rem; padding: 0 .35rem; margin-left: .35rem; text-align: center;
+              background: var(--rojo); color: #fff; font-size: .8rem; }
+  .filtros a.activo .contador { background: #fff; color: var(--rojo); }
+  .tabla form { margin: 0; }
+  .tabla .hora { white-space: nowrap; font-size: .88rem; }
+</style>
+{% endblock %}
+{% block contenido %}
+<h1>Alertas</h1>
+<p class="intro">Se genera una alerta cuando pasa una placa no registrada —posible evasión— o un vehículo sin saldo suficiente.</p>
+
+<nav class="filtros" aria-label="Filtrar alertas">
+  <a href="/alertas" {% if filtro == "pendientes" %}class="activo" aria-current="page"{% endif %}>Pendientes{% if n_pendientes %}<span class="contador">{{ n_pendientes }}</span>{% endif %}</a>
+  <a href="/alertas?filtro=atendidas" {% if filtro == "atendidas" %}class="activo" aria-current="page"{% endif %}>Atendidas</a>
+</nav>
+
+<div class="tabla-caja">
+  <table class="tabla">
+    <thead>
+      <tr>
+        <th scope="col">Captura</th>
+        <th scope="col">Placa</th>
+        <th scope="col">Tipo</th>
+        <th scope="col">Hora</th>
+        <th scope="col">{% if filtro == "pendientes" %}Acción{% else %}Estado{% endif %}</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for a in alertas %}
+      <tr>
+        <td>
+          {% if a.paso.imagen_url %}
+          <button type="button" class="mini-btn" data-ampliar="{{ a.paso.imagen_url }}"
+                  data-titulo="{{ a.paso.placa_normalizada }} · {{ a.created_at|date:'d/m/Y H:i:s' }}" aria-label="Ampliar captura de {{ a.paso.placa_normalizada }}">
+            <img class="mini" src="{{ a.paso.imagen_url }}" alt="" loading="lazy"></button>
+          {% else %}<span class="sin-captura">Sin captura</span>{% endif %}
+        </td>
+        <td class="placa">{{ a.paso.placa_normalizada }}</td>
+        <td><span class="badge e-{{ a.tipo }}">{{ a.get_tipo_display }}</span></td>
+        <td class="hora">{{ a.created_at|date:"d/m/Y" }} · {{ a.created_at|date:"H:i:s" }}</td>
+        <td>
+          {% if a.atendida %}<span class="tenue">Atendida</span>{% else %}
+          <form method="post" action="/alertas/{{ a.id }}/atender">{% csrf_token %}
+            <button class="boton chico primario" type="submit">Marcar atendida</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="5" class="vacio">{% if filtro == "pendientes" %}No hay alertas pendientes.{% else %}Todavía no hay alertas atendidas.{% endif %}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}
+{% block scripts %}
+{% if filtro == "pendientes" %}
+<script>
+  // Si llega una alerta nueva mientras se mira la lista de pendientes, se recarga para mostrarla.
+  document.addEventListener("iap:paso", function (e) { if (e.detail.alerta) setTimeout(function () { location.reload(); }, 1500); });
+</script>
+{% endif %}
+{% endblock %}

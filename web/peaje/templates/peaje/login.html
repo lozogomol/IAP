@@ -5,50 +5,44 @@
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <style>
   main { min-height: 100vh; min-height: 100dvh; display: flex; flex-direction: column; align-items: center;
-         justify-content: center; gap: 1.5rem; padding: 2rem 1rem; }
-  .login { max-width: 420px; width: 100%; text-align: center; padding: 2.25rem 1.75rem 1.75rem; }
-  .logo { width: 84px; height: 84px; margin: 0 auto 1rem; display: grid; place-items: center; border-radius: 24px;
-          background: radial-gradient(circle at 30% 25%, rgba(59,130,246,.35), rgba(11,29,81,.6));
-          border: 1px solid var(--borde-fuerte); box-shadow: 0 0 40px rgba(59,130,246,.45); }
-  .logo svg { width: 56px; height: 56px; }
-  .login h1 { font-size: 2.2rem; font-weight: 800; margin: 0; letter-spacing: .06em;
-              background: linear-gradient(180deg, #fff 30%, #93c5fd); -webkit-background-clip: text;
-              background-clip: text; color: transparent; }
-  .login .nombre { font-size: 1rem; font-weight: 600; margin: .15rem 0 .5rem; color: var(--acento-vivo); }
-  .login .sub { margin: 0; font-size: .92rem; }
-  .separador { height: 1px; margin: 1.5rem 0 0; background: linear-gradient(90deg, transparent, var(--borde-fuerte), transparent); }
-  #google-btn { display: flex; justify-content: center; margin: 1.5rem 0 .5rem; min-height: 44px; }
-  #mensaje { min-height: 1.5em; color: var(--peligro); font-size: .9rem; margin: .25rem 0; }
-  .pie { text-align: center; font-size: .8rem; color: var(--tenue); }
-  .pie a { color: var(--tenue); text-decoration: underline; text-underline-offset: 3px; }
+         justify-content: center; gap: 1.25rem; padding: 2rem 1rem; }
+  .acceso { width: 100%; max-width: 420px; border: 1px solid var(--borde); background: #fff; }
+  .acceso-cab { padding: 2rem 1.5rem 1.6rem; text-align: center; }
+  .acceso-cab svg { width: 56px; height: 56px; margin: 0 auto .75rem; color: #fff; display: block; }
+  .acceso-cab h1 { font-size: 1.9rem; font-weight: 800; margin: 0; letter-spacing: .01em; }
+  .acceso-cab p { margin: .2rem 0 0; color: #dbe5ff; font-weight: 500; }
+  .acceso-cuerpo { padding: 1.5rem; text-align: center; }
+  #google-btn { display: flex; justify-content: center; min-height: 44px; margin: .25rem 0 .5rem; }
+  #mensaje { min-height: 1.5em; color: var(--rojo); font-size: .9rem; margin: .25rem 0; }
+  .pie { text-align: center; font-size: .82rem; color: var(--tenue); }
 </style>
 {% endblock %}
 {% block contenido %}
-<section class="tarjeta login" aria-labelledby="titulo-login">
-  <div class="logo">{% include "peaje/_icono.html" %}</div>
-  <h1 id="titulo-login">IAP</h1>
-  <p class="nombre">Inteligencia Artificial de Peaje</p>
-  <p class="sub tenue">Lectura de placas y cobro automático en casetas</p>
-  <div class="separador"></div>
-  {% if google_client_id %}
-    <div id="g_id_onload"
-         data-client_id="{{ google_client_id }}"
-         data-callback="alIniciarConGoogle"
-         data-auto_prompt="false"></div>
-    <div id="google-btn">
-      <div class="g_id_signin" data-type="standard" data-theme="filled_black" data-size="large"
-           data-text="signin_with" data-shape="pill" data-locale="es"></div>
-    </div>
-  {% else %}
-    <p id="google-btn" class="tenue">Falta configurar GOOGLE_CLIENT_ID.</p>
-  {% endif %}
-  <p id="mensaje" role="alert"></p>
-  <p class="tenue" style="font-size:.85rem;margin:0">Solo cuentas de Google autorizadas.</p>
+<section class="acceso" aria-labelledby="titulo-login">
+  <div class="acceso-cab galaxia">
+    {% include "peaje/_icono.html" %}
+    <h1 id="titulo-login">Peaje IAP</h1>
+    <p>Inteligencia Artificial de Peaje</p>
+  </div>
+  <div class="acceso-cuerpo">
+    <p class="tenue" style="margin:0 0 1rem">Inicia sesión con tu cuenta de Google autorizada.</p>
+    {% if google_client_id %}
+      <div id="g_id_onload"
+           data-client_id="{{ google_client_id }}"
+           data-callback="alIniciarConGoogle"
+           data-auto_prompt="false"></div>
+      <div id="google-btn">
+        <div class="g_id_signin" data-type="standard" data-theme="outline" data-size="large"
+             data-text="signin_with" data-shape="rectangular" data-locale="es" data-width="300"></div>
+      </div>
+    {% else %}
+      <p id="google-btn" class="tenue">Falta configurar GOOGLE_CLIENT_ID.</p>
+    {% endif %}
+    <p id="mensaje" role="alert"></p>
+    <p class="tenue pequeno" style="margin:0">Solo cuentas incluidas en la lista blanca.</p>
+  </div>
 </section>
-<footer class="pie">
-  <div>IAP · Inteligencia Artificial de Peaje</div>
-  <a href="/estado">Estado del sistema</a>
-</footer>
+<footer class="pie"><a href="/estado">Estado del sistema</a></footer>
 {% csrf_token %}
 {% endblock %}
 {% block scripts %}

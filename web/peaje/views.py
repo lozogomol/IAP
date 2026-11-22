@@ -1,11 +1,17 @@
 import json
 import logging
+import re
 import time
 import urllib.request
+from decimal import Decimal, InvalidOperation
 
 from django.conf import settings
 from django.contrib import messages
-from django.http import JsonResponse
+from django.core.exceptions import SuspiciousFileOperation
+from django.core.files.storage import default_storage
+from django.db import connection
+from django.db.models import F, OuterRef, Subquery
+from django.http import FileResponse, Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
@@ -13,7 +19,11 @@ from django.views.decorators.http import require_POST
 
 from .auth import (TokenGoogleInvalido, cerrar_sesion, datos_token_google, iniciar_sesion, login_requerido,
                    rol_requerido, usuario_autorizado)
-from .models import Caseta, Usuario
+from . import panel as panel_mod
+from . import tiempo_real
+from .forms import VehiculoForm
+from .models import Alerta, Paso, Usuario, Vehiculo, caseta_principal
+from .placas import normalizar_placa
 
 log = logging.getLogger(__name__)
 
@@ -101,7 +111,7 @@ def logout(request):
     return redirect("login")
 
 
-# --- Páginas protegidas (placeholders) ----------------------------------------------------------
+# --- Páginas protegidas ---------------------------------------------------------------------------
 
 def _placeholder(request, titulo, texto):
     return render(request, "peaje/placeholder.html", {"titulo": titulo, "texto": texto})
@@ -109,12 +119,84 @@ def _placeholder(request, titulo, texto):
 
 @login_requerido
 def panel(request):
-    return _placeholder(request, "Panel", "Aquí irá el panel en tiempo real de los pasos por las casetas.")
+    return render(request, "peaje/panel.html", {"datos": panel_mod.datos_panel()})
+
+
+@login_requerido
+def panel_datos(request):
+    """JSON del panel: respaldo por consulta periódica cuando Pusher no está configurado."""
+    return JsonResponse(panel_mod.datos_panel())
+
+
+@require_POST
+@login_requerido
+def pusher_auth(request):
+    """Autoriza la suscripción al canal privado de Pusher (solo con sesión iniciada)."""
+    socket_id = request.POST.get("socket_id", "")
+    canal = request.POST.get("channel_name", "")
+    if not (tiempo_real.configurado() and canal == tiempo_real.CANAL and re.fullmatch(r"\d+\.\d+", socket_id)):
+        return JsonResponse({"error": "No autorizado."}, status=403)
+    return JsonResponse(tiempo_real.firmar_canal(socket_id, canal))
+
+
+@login_requerido
+def captura(request, ruta):
+    """Sirve las capturas guardadas en disco local (cuando no hay Cloudinary)."""
+    nombre = f"capturas/{ruta}"
+    try:
+        if not default_storage.exists(nombre):
+            raise Http404
+        return FileResponse(default_storage.open(nombre, "rb"), content_type="image/jpeg")
+    except SuspiciousFileOperation:
+        raise Http404
 
 
 @login_requerido
 def vehiculos(request):
-    return _placeholder(request, "Vehículos", "Aquí irá el listado y la gestión de vehículos registrados.")
+    form = VehiculoForm(request.POST or None)
+    if request.method == "POST":
+        if form.is_valid():
+            v = form.save()
+            messages.success(request, f"Vehículo {v.placa} registrado.")
+            return redirect("vehiculos")
+        messages.error(request, "Revisa los datos del formulario.")
+    q = normalizar_placa(request.GET.get("q", ""))
+    ultimos = Paso.objects.filter(placa_normalizada=OuterRef("placa")).order_by("-created_at")
+    lista = Vehiculo.objects.annotate(
+        ultimo_paso=Subquery(ultimos.values("created_at")[:1]),
+        ultima_captura=Subquery(ultimos.values("imagen_url")[:1]),
+    )
+    if q:
+        lista = lista.filter(placa__icontains=q)
+    return render(request, "peaje/vehiculos.html", {
+        "vehiculos": lista, "form": form, "q": q,
+        "es_admin": request.session.get("rol") == "admin",
+    })
+
+
+@require_POST
+@rol_requerido("admin")
+def vehiculo_accion(request, pk):
+    vehiculo = get_object_or_404(Vehiculo, pk=pk)
+    accion = request.POST.get("accion")
+    if accion == "recargar":
+        try:
+            monto = Decimal(request.POST.get("monto", "")).quantize(Decimal("0.01"))
+        except (InvalidOperation, ValueError):
+            monto = Decimal("0")
+        if not Decimal("0") < monto <= Decimal("10000"):
+            messages.error(request, "El monto de recarga debe ser mayor a 0 y hasta Bs 10.000.")
+        else:
+            Vehiculo.objects.filter(pk=pk).update(saldo=F("saldo") + monto)
+            vehiculo.refresh_from_db()
+            messages.success(request, f"Recarga de Bs {monto} a {vehiculo.placa}. Nuevo saldo: Bs {vehiculo.saldo}.")
+    elif accion in ("activar", "desactivar"):
+        vehiculo.activo = accion == "activar"
+        vehiculo.save(update_fields=["activo"])
+        messages.success(request, f"{vehiculo.placa} {'activado' if vehiculo.activo else 'desactivado'}.")
+    else:
+        messages.error(request, "Acción no válida.")
+    return redirect("vehiculos")
 
 
 @login_requerido
@@ -124,12 +206,27 @@ def pasos(request):
 
 @login_requerido
 def alertas(request):
-    return _placeholder(request, "Alertas", "Aquí irán las alertas de placas no registradas y saldo insuficiente.")
+    filtro = "atendidas" if request.GET.get("filtro") == "atendidas" else "pendientes"
+    lista = (Alerta.objects.select_related("paso").filter(atendida=filtro == "atendidas")
+             .order_by("-created_at")[:200])
+    return render(request, "peaje/alertas.html", {
+        "alertas": lista, "filtro": filtro,
+        "n_pendientes": Alerta.objects.filter(atendida=False).count(),
+    })
+
+
+@require_POST
+@login_requerido
+def alerta_atender(request, pk):
+    if Alerta.objects.filter(pk=pk, atendida=False).update(atendida=True):
+        messages.success(request, "Alerta marcada como atendida.")
+        tiempo_real.notificar("kpis", {"kpis": panel_mod.kpis()})
+    return redirect("alertas")
 
 
 @login_requerido
 def caseta(request):
-    return render(request, "peaje/caseta.html", {"casetas": Caseta.objects.all()})
+    return render(request, "peaje/caseta.html", {"caseta": caseta_principal()})
 
 
 @login_requerido
@@ -189,6 +286,20 @@ def chat(request):
 
 # --- Estado (público) ---------------------------------------------------------------------------
 
+def _estado_bd():
+    t0 = time.perf_counter()
+    try:
+        with connection.cursor() as c:
+            c.execute("SELECT 1")
+        return {"base_datos": "ok", "latencia_bd_ms": round((time.perf_counter() - t0) * 1000)}
+    except Exception as e:  # noqa: BLE001
+        log.warning("Base de datos no disponible: %s", e)
+        return {"base_datos": "caida"}
+
+
+MODELOS = [("m1_placas", "M1 · Placas"), ("m2_segmentacion", "M2 · Segmentación"), ("m3_keypoints", "M3 · Ejes")]
+
+
 def _estado_inferencia():
     """(datos, status_http) del endpoint de inferencia."""
     url = settings.INFERENCE_URL.rstrip("/")
@@ -196,7 +307,8 @@ def _estado_inferencia():
         return {"web": "ok", "inferencia": "sin configurar (falta INFERENCE_URL)"}, 200
     t0 = time.perf_counter()
     try:
-        req = urllib.request.Request(url + "/salud", headers={"X-API-Token": settings.INFERENCE_TOKEN})
+        req = urllib.request.Request(url + "/salud", headers={"X-API-Token": settings.INFERENCE_TOKEN,
+                                                              "ngrok-skip-browser-warning": "1"})
         with urllib.request.urlopen(req, timeout=5) as r:
             detalle = json.loads(r.read() or b"{}")
         return {"web": "ok", "inferencia": "ok", "latencia_ms": round((time.perf_counter() - t0) * 1000),
@@ -208,9 +320,13 @@ def _estado_inferencia():
 def estado(request):
     """Página 'Estado'. Con ?format=json devuelve el JSON que consulta el cron."""
     datos, status = _estado_inferencia()
+    datos.update(_estado_bd())
+    if datos["base_datos"] != "ok":
+        status = 503
     if request.GET.get("format") == "json":
         return JsonResponse(datos, status=status)
-    return render(request, "peaje/estado.html", {
-        "datos": datos,
-        "detalle_json": json.dumps(datos.get("detalle"), ensure_ascii=False, indent=2) if "detalle" in datos else "",
-    }, status=status)
+    modelos = []
+    if datos["inferencia"] == "ok":
+        srv = (datos.get("detalle") or {}).get("modelos") or {}
+        modelos = [(nombre, srv.get(clave, "pendiente")) for clave, nombre in MODELOS]
+    return render(request, "peaje/estado.html", {"datos": datos, "modelos": modelos, "bd_ok": datos["base_datos"] == "ok"}, status=status)

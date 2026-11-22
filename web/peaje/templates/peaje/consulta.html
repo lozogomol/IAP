@@ -2,51 +2,57 @@
 {% block titulo %}Consulta de placa{% endblock %}
 {% block head %}
 <style>
-  .formas { display: grid; gap: 1rem; grid-template-columns: 1fr 1fr; margin-bottom: 1rem; }
+  .buscador { max-width: 720px; margin-bottom: 1rem; }
   .fila { display: flex; gap: .5rem; flex-wrap: wrap; }
-  .fila input { flex: 1 1 160px; text-transform: uppercase; letter-spacing: .08em; font-weight: 600; font-size: 1.1rem; }
-  .fila .boton { min-height: 44px; }
-  #foto { display: none; }
-  .foto-btn { width: 100%; min-height: 44px; }
-  #vista { display: none; max-width: 100%; max-height: 220px; margin-top: .75rem; border-radius: 12px;
-           border: 1px solid var(--borde); }
-  #resultado { display: none; text-align: center; }
-  .placa-grande { font-size: clamp(2.2rem, 10vw, 3.4rem); font-weight: 800; letter-spacing: .08em; margin: 0; }
-  .estado-grande { display: inline-block; font-size: 1.1rem; font-weight: 700; padding: .35rem 1rem;
-                   border-radius: 999px; border: 1px solid currentColor; margin: .5rem 0 1rem; }
-  .datos { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: .5rem; text-align: left; }
-  .dato { background: rgba(2,6,23,.55); border: 1px solid var(--borde); border-radius: 12px; padding: .6rem .75rem; }
-  .dato b { display: block; }
-  .dato span { font-size: .75rem; color: var(--tenue); text-transform: uppercase; letter-spacing: .05em; }
-  .sugerencias { margin-top: 1rem; }
-  .sugerencias .boton { margin: .25rem; letter-spacing: .06em; font-weight: 600; }
-  #mensaje { min-height: 1.4em; }
-  @media (max-width: 760px) { .formas { grid-template-columns: 1fr; } }
+  .fila input { flex: 1 1 200px; text-transform: uppercase; letter-spacing: .08em; font-weight: 700; font-size: 1.2rem; min-height: 50px; }
+  .fila .boton { min-height: 50px; }
+  #foto { position: absolute; left: -9999px; width: 1px; height: 1px; }
+  #mensaje { min-height: 1.4em; margin: .25rem 0 1rem; }
+  #resultado { display: none; max-width: 980px; }
+  .cuerpo { display: grid; gap: 1.25rem; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; }
+  .placa-grande { font-size: clamp(2.2rem, 8vw, 3.2rem); font-weight: 800; letter-spacing: .08em; margin: 0 0 .4rem; line-height: 1.1; }
+  #r-estado { font-size: .95rem; padding: .3rem .75rem; }
+  .respuestas { list-style: none; margin: 1rem 0 0; padding: 0; border-top: 1px solid var(--borde); }
+  .respuestas li { display: flex; justify-content: space-between; gap: 1rem; padding: .6rem 0; border-bottom: 1px solid var(--borde); flex-wrap: wrap; }
+  .respuestas li span:first-child { color: var(--tenue); }
+  .respuestas li b { text-align: right; }
+  .captura { aspect-ratio: 16 / 10; background: var(--suave); border: 1px solid var(--borde); display: grid; place-items: center;
+             color: var(--tenue); font-size: .9rem; text-align: center; overflow: hidden; }
+  .captura img, .captura button { width: 100%; height: 100%; }
+  .captura img { object-fit: cover; }
+  .captura-pie { font-size: .82rem; color: var(--tenue); margin-top: .35rem; }
+  .sugerencias { margin-top: 1rem; display: flex; gap: .4rem; flex-wrap: wrap; align-items: center; }
+  .sugerencias .boton { letter-spacing: .06em; }
+  #vista { display: none; max-height: 160px; width: auto; margin-top: .75rem; border: 1px solid var(--borde); }
+  @media (max-width: 760px) { .cuerpo { grid-template-columns: 1fr; } }
 </style>
 {% endblock %}
 {% block contenido %}
 <h1>Consulta de placa</h1>
-<div class="formas">
-  <form id="form-texto" class="tarjeta" autocomplete="off">
-    <h2><label for="placa">Escribir placa</label></h2>
-    <div class="fila">
-      <input id="placa" name="placa" maxlength="12" placeholder="Ej. 2451KTP" required inputmode="text">
-      <button class="boton primario" type="submit">Consultar</button>
-    </div>
-  </form>
-  <div class="tarjeta">
-    <h2>Foto de la placa</h2>
-    <label class="boton foto-btn" for="foto">📷 Tomar o subir foto</label>
+<form id="form-texto" class="tarjeta buscador" autocomplete="off">
+  <label for="placa">Placa del vehículo</label>
+  <div class="fila" style="margin-top:.35rem">
+    <input id="placa" name="placa" maxlength="12" placeholder="Ej. 2451KTP" required>
+    <button class="boton primario" type="submit">Consultar</button>
+    <label class="boton" for="foto" style="font-size:.92rem">Usar foto</label>
     <input id="foto" type="file" accept="image/*" capture="environment">
-    <img id="vista" alt="Foto enviada">
   </div>
-</div>
+  <img id="vista" alt="Foto enviada">
+</form>
 <p id="mensaje" class="tenue" role="status"></p>
 <section id="resultado" class="tarjeta" aria-live="polite">
-  <p id="r-placa" class="placa-grande"></p>
-  <div id="r-estado" class="estado-grande"></div>
-  <div id="r-datos" class="datos"></div>
-  <div id="r-sugerencias" class="sugerencias"></div>
+  <div class="cuerpo">
+    <div>
+      <p id="r-placa" class="placa-grande"></p>
+      <span id="r-estado" class="badge"></span>
+      <ul id="r-datos" class="respuestas"></ul>
+      <div id="r-sugerencias" class="sugerencias"></div>
+    </div>
+    <div>
+      <div id="r-captura" class="captura">Sin captura</div>
+      <div id="r-captura-pie" class="captura-pie"></div>
+    </div>
+  </div>
 </section>
 {% csrf_token %}
 {% endblock %}
@@ -55,38 +61,60 @@
 (function () {
   var $ = function (id) { return document.getElementById(id); };
   var ANCHO_MAX = 1280;
+  // Los 4 estados de la API, en palabras simples
+  var TEXTOS = {
+    habilitada: "Registrada y con saldo",
+    saldo_insuficiente: "Registrada, sin saldo suficiente",
+    inactiva: "Registrada, pero desactivada",
+    no_registrada: "No registrada"
+  };
 
   function msg(t) { $("mensaje").textContent = t || ""; }
 
-  function dato(valor, etiqueta) {
-    var d = document.createElement("div"); d.className = "dato";
+  function fila(etiqueta, valor) {
+    var li = document.createElement("li");
+    var a = document.createElement("span"); a.textContent = etiqueta;
     var b = document.createElement("b"); b.textContent = valor;
-    var s = document.createElement("span"); s.textContent = etiqueta;
-    d.appendChild(b); d.appendChild(s);
-    return d;
+    li.appendChild(a); li.appendChild(b);
+    $("r-datos").appendChild(li);
   }
 
-  function mostrar(c, extra) {
+  function mostrar(c, lecturaFoto) {
     $("resultado").style.display = "block";
     $("r-placa").textContent = c.placa || "—";
-    $("r-estado").textContent = c.estado_texto;
-    $("r-estado").className = "estado-grande estado-" + c.estado;
-    var datos = $("r-datos"); datos.innerHTML = "";
+    $("r-estado").textContent = TEXTOS[c.estado] || c.estado_texto;
+    $("r-estado").className = "badge e-" + c.estado;
+    $("r-datos").innerHTML = "";
+    fila("¿Está registrada?", c.vehiculo ? "Sí" : "No");
     if (c.vehiculo) {
-      datos.appendChild(dato(c.vehiculo.propietario, "Propietario"));
-      datos.appendChild(dato(c.vehiculo.categoria_texto, "Categoría"));
-      datos.appendChild(dato(c.vehiculo.ejes, "Ejes"));
-      datos.appendChild(dato("Bs " + c.vehiculo.saldo, "Saldo"));
-      datos.appendChild(dato(c.tarifa != null ? "Bs " + c.tarifa : "Sin tarifa", "Tarifa"));
+      fila("Propietario", c.vehiculo.propietario);
+      fila("Saldo", "Bs " + c.vehiculo.saldo);
     }
-    if (extra) datos.appendChild(dato(extra, "Lectura de la foto"));
+    var u = c.ultimo_paso;
+    fila("¿Ya pasó por el peaje?", u ? "Sí" : "No, nunca");
+    if (u) fila("Último paso", u.fecha + " a las " + u.hora + " · " + u.estado_texto);
+    if (lecturaFoto) fila("Leído en la foto", lecturaFoto);
+
+    var cap = $("r-captura"); cap.innerHTML = "";
+    if (u && u.imagen_url) {
+      var b = document.createElement("button"); b.type = "button"; b.className = "mini-btn";
+      b.setAttribute("data-ampliar", u.imagen_url);
+      b.setAttribute("data-titulo", c.placa + " · " + u.fecha + " " + u.hora);
+      b.setAttribute("aria-label", "Ampliar captura del último paso");
+      var img = document.createElement("img"); img.src = u.imagen_url; img.alt = "Captura del último paso de " + c.placa;
+      b.appendChild(img); cap.appendChild(b);
+      $("r-captura-pie").textContent = "Captura del último paso (" + u.fecha + " " + u.hora + ")";
+    } else {
+      cap.textContent = u ? "El último paso no tiene captura" : "Sin pasos registrados";
+      $("r-captura-pie").textContent = "";
+    }
+
     var sug = $("r-sugerencias"); sug.innerHTML = "";
     if (c.sugerencias && c.sugerencias.length) {
-      var p = document.createElement("p"); p.className = "tenue"; p.style.margin = "0 0 .25rem";
-      p.textContent = "¿Quisiste decir…?";
+      var p = document.createElement("span"); p.className = "tenue"; p.textContent = "¿Quisiste decir…?";
       sug.appendChild(p);
       c.sugerencias.forEach(function (s) {
-        var b = document.createElement("button"); b.type = "button"; b.className = "boton"; b.textContent = s;
+        var b = document.createElement("button"); b.type = "button"; b.className = "boton chico placa"; b.textContent = s;
         b.addEventListener("click", function () { $("placa").value = s; consultar(s); });
         sug.appendChild(b);
       });
@@ -131,7 +159,7 @@
     var archivo = this.files && this.files[0];
     if (!archivo) return;
     $("vista").src = URL.createObjectURL(archivo); $("vista").style.display = "block";
-    msg("Leyendo la placa…");
+    msg("Leyendo la placa de la foto…");
     reducir(archivo).then(function (blob) {
       var datos = new FormData(); datos.append("imagen", blob, "foto.jpg");
       return fetch("/api/v1/placas/leer", {
@@ -147,7 +175,7 @@
       var l = d.lecturas[0];
       msg(d.lecturas.length > 1 ? "Se detectaron " + d.lecturas.length + " placas; se muestra la más clara." : "");
       $("placa").value = l.placa;
-      mostrar(d.consulta, l.texto_leido + (l.confianza != null ? " · " + Math.round(l.confianza * 100) + "%" : ""));
+      mostrar(d.consulta, l.texto_leido + (l.confianza != null ? " (" + Math.round(l.confianza * 100) + "%)" : ""));
     }).catch(function (e) { msg(e && e.message ? e.message : "Error de red."); })
       .then(function () { $("foto").value = ""; });
   });

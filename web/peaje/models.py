@@ -139,3 +139,12 @@ class LecturaPlaca(models.Model):
 
     def __str__(self):
         return f"{self.placa} · {self.caseta_id} · {self.created_at:%H:%M:%S}"
+
+
+CASETA_PRINCIPAL = "Peaje IAP"
+
+
+def caseta_principal():
+    """La caseta que usa el modo caseta (creada por la migración 0004; se recrea si alguien la borra)."""
+    caseta = Caseta.objects.filter(nombre=CASETA_PRINCIPAL).order_by("id").first()
+    return caseta or Caseta.objects.create(nombre=CASETA_PRINCIPAL, ubicacion=CASETA_PRINCIPAL)

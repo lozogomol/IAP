@@ -1,90 +1,82 @@
 {% extends "peaje/base.html" %}
-{% block titulo %}Modo caseta{% endblock %}
+{% block titulo %}Caseta{% endblock %}
 {% block head %}
 <style>
-  .controles { display: flex; gap: .6rem; flex-wrap: wrap; align-items: center; margin-bottom: 1rem; }
-  .controles select { flex: 1 1 220px; }
-  .controles .boton { flex: 0 0 auto; min-width: 130px; min-height: 46px; }
-  .rejilla { display: grid; gap: 1rem; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); align-items: start; }
-  .video-caja { position: relative; aspect-ratio: 4 / 3; border-radius: var(--radio); overflow: hidden;
-                background: #000; border: 1px solid var(--borde); }
+  .sub { margin: -.75rem 0 1rem; }
+  .rejilla { display: grid; gap: 1rem; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); align-items: start; }
+  .video-caja { position: relative; aspect-ratio: 16 / 10; background: #0f172a; border: 1px solid #0f172a; overflow: hidden; }
   .video-caja video { width: 100%; height: 100%; object-fit: cover; display: block; }
-  .video-caja .vacio { position: absolute; inset: 0; display: grid; place-items: center; text-align: center;
-                       padding: 1rem; color: var(--tenue); }
-  .vivo { position: absolute; top: .6rem; left: .6rem; display: none; align-items: center; gap: .4rem;
-          padding: .2rem .6rem; border-radius: 999px; background: rgba(2,4,13,.7); font-size: .8rem; font-weight: 600; }
-  .vivo::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--peligro);
-                  box-shadow: 0 0 8px var(--peligro); }
-  .grabando .vivo { display: inline-flex; }
-  .resultado { text-align: center; }
-  .placa-grande { font-size: clamp(2.4rem, 11vw, 4rem); font-weight: 800; letter-spacing: .08em; margin: .25rem 0;
-                  font-variant-numeric: tabular-nums; }
-  .estado-grande { display: inline-block; font-size: 1.15rem; font-weight: 700; padding: .35rem 1rem;
-                   border-radius: 999px; border: 1px solid currentColor; margin-bottom: .75rem; }
-  .datos { display: grid; grid-template-columns: repeat(3, 1fr); gap: .5rem; margin: .5rem 0; }
-  .dato { background: rgba(2,6,23,.55); border: 1px solid var(--borde); border-radius: 12px; padding: .6rem .4rem; }
-  .dato b { display: block; font-size: 1.25rem; }
-  .dato span { font-size: .75rem; color: var(--tenue); text-transform: uppercase; letter-spacing: .05em; }
-  .metricas { display: flex; justify-content: space-between; flex-wrap: wrap; gap: .5rem; font-size: .88rem;
-              color: var(--tenue); margin-top: .75rem; }
-  .metricas b { color: var(--texto); font-variant-numeric: tabular-nums; }
-  #aviso { display: none; margin-bottom: 1rem; border-color: rgba(248,113,113,.6); color: #fecaca; }
+  .video-caja .indicacion { position: absolute; inset: 0; display: grid; place-items: center; text-align: center;
+                            padding: 1rem; color: #cbd5e1; }
+  .en-vivo { position: absolute; top: .75rem; left: .75rem; display: none; align-items: center; gap: .45rem;
+             padding: .25rem .6rem; background: rgba(15,23,42,.8); color: #fff; font-size: .8rem; font-weight: 700; }
+  .en-vivo::before { content: ""; width: 9px; height: 9px; background: #ef4444; }
+  .grabando .en-vivo { display: inline-flex; }
+  .acciones { display: flex; gap: .75rem; align-items: center; flex-wrap: wrap; margin-top: .75rem; }
+  .acciones .boton { min-width: 240px; }
+  .discreto { font-size: .8rem; color: var(--tenue); font-variant-numeric: tabular-nums; }
+  .resultado { padding: 1.25rem; }
+  .resultado .etiqueta { font-size: .78rem; text-transform: uppercase; letter-spacing: .08em; color: #c7d7fe; font-weight: 600; }
+  .placa-grande { font-size: clamp(2.4rem, 9vw, 3.6rem); font-weight: 800; letter-spacing: .08em; line-height: 1.1;
+                  margin: .35rem 0 .6rem; font-variant-numeric: tabular-nums; word-break: break-all; }
+  .resultado .badge { font-size: .95rem; padding: .3rem .75rem; }
+  .datos { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; margin: 1rem 0; background: rgba(255,255,255,.25);
+           border: 1px solid rgba(255,255,255,.25); }
+  .dato { background: rgba(11,29,81,.55); padding: .6rem .75rem; }
+  .dato b { display: block; font-size: 1.25rem; font-variant-numeric: tabular-nums; }
+  .dato span { font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; color: #c7d7fe; }
+  .captura { aspect-ratio: 16 / 10; background: rgba(15,23,42,.5); border: 1px solid rgba(255,255,255,.3);
+             display: grid; place-items: center; color: #c7d7fe; font-size: .85rem; overflow: hidden; }
+  .captura img { width: 100%; height: 100%; object-fit: cover; }
+  #lectura { min-height: 1.4em; font-size: .9rem; margin: .75rem 0 0; color: #dbe5ff; }
+  #aviso { display: none; margin-bottom: 1rem; border-left: 4px solid var(--rojo); background: #fef2f2; }
   #aviso.visible { display: block; }
-  #lectura { min-height: 1.4em; font-size: .9rem; }
-  @media (max-width: 760px) {
+  @media (max-width: 900px) {
     .rejilla { grid-template-columns: 1fr; }
-    .controles .boton { flex: 1 1 100%; }
+    .video-caja { aspect-ratio: 4 / 3; }
+    .acciones .boton { flex: 1 1 100%; min-width: 0; }
   }
 </style>
 {% endblock %}
 {% block contenido %}
-<h1>Modo caseta</h1>
+<h1>Peaje IAP</h1>
+<p class="sub tenue">Modo caseta · reconocimiento automático de placas</p>
 <div id="aviso" class="tarjeta" role="alert"></div>
-<div class="controles">
-  <label for="caseta" class="tenue" style="flex-basis:100%;font-size:.9rem;margin-bottom:-.3rem">Caseta</label>
-  <select id="caseta">
-    {% for c in casetas %}<option value="{{ c.id }}">{{ c.nombre }}</option>{% endfor %}
-  </select>
-  <button id="btn" class="boton primario" type="button">Iniciar</button>
-</div>
 <div class="rejilla">
-  <div id="video-caja" class="video-caja">
-    <video id="video" playsinline muted autoplay></video>
-    <div id="vacio" class="vacio">Pulsa <b>&nbsp;Iniciar&nbsp;</b> para abrir la cámara trasera.</div>
-    <div class="vivo">EN VIVO · <span id="restante">60</span> s</div>
+  <div>
+    <div id="video-caja" class="video-caja">
+      <video id="video" playsinline muted autoplay></video>
+      <div id="indicacion" class="indicacion">Pulsa «Iniciar reconocimiento» para abrir la cámara trasera.</div>
+      <div class="en-vivo">EN VIVO · <span id="restante">60</span> s</div>
+    </div>
+    <div class="acciones">
+      <button id="btn" class="boton primario grande" type="button">Iniciar reconocimiento</button>
+      <span class="discreto">Peticiones: <span id="contador">0</span> · Latencia: <span id="latencia">–</span></span>
+    </div>
   </div>
-  <section class="tarjeta resultado" aria-live="polite">
-    <div class="tenue" style="font-size:.85rem">Último resultado</div>
+  <section class="tarjeta galaxia resultado" aria-live="polite" aria-label="Último resultado">
+    <div class="etiqueta">Último resultado</div>
     <div id="placa" class="placa-grande">———</div>
-    <div id="estado" class="estado-grande tenue">Sin lecturas</div>
+    <span id="estado" class="badge">Sin lecturas</span>
     <div class="datos">
-      <div class="dato"><b id="categoria">–</b><span>Categoría</span></div>
-      <div class="dato"><b id="ejes">–</b><span>Ejes</span></div>
-      <div class="dato"><b id="tarifa">–</b><span>Tarifa</span></div>
+      <div class="dato"><b id="monto">–</b><span>Monto cobrado</span></div>
+      <div class="dato"><b id="hora">–</b><span>Hora</span></div>
     </div>
-    <div id="lectura" class="tenue"></div>
-    <div class="metricas">
-      <span>Latencia: <b id="latencia">–</b></span>
-      <span>Peticiones: <b id="contador">0</b></span>
-    </div>
+    <div id="captura" class="captura">Aquí aparecerá la captura</div>
+    <p id="lectura"></p>
   </section>
 </div>
 <canvas id="lienzo" hidden></canvas>
-{% csrf_token %}
+{{ caseta.id|json_script:"caseta-id" }}
 {% endblock %}
 {% block scripts %}
 <script>
 (function () {
   var FPS = 2, CALIDAD = 0.7, ANCHO_MAX = 960, DURACION_S = 60;
-  var ESTADOS = {
-    cobrado: ["Cobrado", "estado-cobrado"],
-    saldo_insuficiente: ["Saldo insuficiente", "estado-saldo_insuficiente"],
-    no_registrada: ["No registrada", "estado-no_registrada"],
-    error_lectura: ["Error de lectura", "estado-error_lectura"]
-  };
+  var CASETA_ID = JSON.parse(document.getElementById("caseta-id").textContent);
   var $ = function (id) { return document.getElementById(id); };
   var video = $("video"), lienzo = $("lienzo"), btn = $("btn");
-  var flujo = null, temporizador = null, reloj = null, enCurso = false, enviadas = 0, inicio = 0;
+  var flujo = null, temporizador = null, reloj = null, enCurso = false, enviadas = 0, inicio = 0, urlCaptura = null;
 
   function aviso(texto) { $("aviso").textContent = texto; $("aviso").classList.toggle("visible", !!texto); }
 
@@ -111,6 +103,12 @@
     }
   }
 
+  function modoBoton(activo) {
+    btn.textContent = activo ? "Detener" : "Iniciar reconocimiento";
+    btn.classList.toggle("primario", !activo);
+    btn.classList.toggle("peligro", activo);
+  }
+
   function iniciar() {
     var problema = soporte();
     if (problema) { aviso(problema); return; }
@@ -124,15 +122,14 @@
       video.srcObject = s;
       return video.play();
     }).then(function () {
-      $("vacio").style.display = "none";
+      $("indicacion").style.display = "none";
       $("video-caja").classList.add("grabando");
-      $("caseta").disabled = true;
       enviadas = 0; $("contador").textContent = "0";
       inicio = Date.now();
       temporizador = setInterval(capturar, 1000 / FPS);
       reloj = setInterval(tic, 250);
       tic();
-      btn.textContent = "Detener"; btn.classList.remove("primario"); btn.classList.add("peligro");
+      modoBoton(true);
     }).catch(function (e) {
       detener();
       aviso(mensajeError(e));
@@ -144,9 +141,8 @@
     if (flujo) { flujo.getTracks().forEach(function (t) { t.stop(); }); flujo = null; }
     video.srcObject = null;
     $("video-caja").classList.remove("grabando");
-    $("vacio").style.display = "";
-    $("caseta").disabled = false;
-    btn.textContent = "Iniciar"; btn.classList.add("primario"); btn.classList.remove("peligro");
+    $("indicacion").style.display = "";
+    modoBoton(false);
     if (motivo) $("lectura").textContent = motivo;
   }
 
@@ -167,7 +163,7 @@
       if (!blob || !flujo) { enCurso = false; return; }
       var datos = new FormData();
       datos.append("imagen", blob, "frame.jpg");
-      datos.append("caseta_id", $("caseta").value);
+      datos.append("caseta_id", CASETA_ID);
       var t0 = performance.now();
       enviadas++; $("contador").textContent = enviadas;
       fetch("/api/v1/pasos/frame", {
@@ -175,38 +171,46 @@
         headers: { "X-CSRFToken": csrfToken() }
       })
         .then(function (r) { return r.json().catch(function () { return {}; }).then(function (d) { return [r, d]; }); })
-        .then(function (par) { mostrar(par[0], par[1], Math.round(performance.now() - t0)); })
-        .catch(function () { $("lectura").textContent = "Error de red al enviar el frame."; })
+        .then(function (par) { mostrar(par[0], par[1], Math.round(performance.now() - t0), blob); })
+        .catch(function () { $("lectura").textContent = "Error de red al enviar la imagen."; })
         .then(function () { enCurso = false; });
     }, "image/jpeg", CALIDAD);
   }
 
-  function mostrar(r, d, msCliente) {
-    $("latencia").textContent = msCliente + " ms" + (d.latencia_inferencia_ms != null ? " (IA " + d.latencia_inferencia_ms + " ms)" : "");
+  function ponerCaptura(blob) {
+    if (urlCaptura) URL.revokeObjectURL(urlCaptura);
+    urlCaptura = URL.createObjectURL(blob);
+    var img = document.createElement("img");
+    img.src = urlCaptura; img.alt = "Captura del paso";
+    $("captura").innerHTML = ""; $("captura").appendChild(img);
+  }
+
+  function mostrar(r, d, msCliente, blob) {
+    $("latencia").textContent = msCliente + " ms";
     if (r.status === 401 || r.status === 403) {
       detener(); aviso("Tu sesión expiró o no tienes permiso. Vuelve a iniciar sesión."); return;
     }
     if (!r.ok) { $("lectura").textContent = d.detalle || ("Error " + r.status); return; }
     if (d.resultado === "sin_placa") { $("lectura").textContent = "Buscando placa…"; return; }
     if (d.resultado === "leyendo") { $("lectura").textContent = "Leyendo " + d.placa_candidata + "… (confirmando)"; return; }
-    var p = d.paso, e = ESTADOS[p.estado] || [p.estado_texto, ""];
+    var p = d.paso;
+    if (d.resultado === "duplicado") {
+      $("lectura").textContent = p.placa + " ya se registró hace menos de 60 s (no se cobra de nuevo).";
+      return;
+    }
     $("placa").textContent = p.placa;
-    $("estado").textContent = e[0];
-    $("estado").className = "estado-grande " + e[1];
-    $("categoria").textContent = p.categoria;
-    $("ejes").textContent = p.ejes != null ? p.ejes : "–";
-    $("tarifa").textContent = p.tarifa != null ? "Bs " + p.tarifa : "Bs 0";
-    $("lectura").textContent = d.resultado === "duplicado"
-      ? "Ya registrado hace menos de 60 s (no se cobra de nuevo)."
-      : "Registrado con " + d.votos + " lectura(s)" + (p.nota ? " · " + p.nota : "") +
-        (p.fuente_categoria === "registro" ? " · categoría del registro" : "");
+    $("estado").textContent = p.estado_texto;
+    $("estado").className = "badge e-" + p.estado;
+    $("monto").textContent = "Bs " + p.monto_cobrado;
+    $("hora").textContent = new Date(p.created_at).toLocaleTimeString("es-BO", { hour: "2-digit", minute: "2-digit", second: "2-digit", timeZone: "America/La_Paz" });
+    ponerCaptura(blob);
+    $("lectura").textContent = p.nota || "Paso registrado.";
   }
 
   btn.addEventListener("click", function () { flujo ? detener("Detenido.") : iniciar(); });
   document.addEventListener("visibilitychange", function () { if (document.hidden && flujo) detener("Detenido al salir de la página."); });
   var problema = soporte();
   if (problema) aviso(problema);
-  if (!$("caseta").options.length) { btn.disabled = true; aviso("No hay casetas registradas."); }
 })();
 </script>
 {% endblock %}

@@ -34,3 +34,11 @@ La cámara del navegador exige **HTTPS** (Render, o un túnel ngrok hacia el ser
 - Build: `pip install -r requirements.txt && python manage.py collectstatic --noinput && python manage.py migrate`
 - Start: `gunicorn config.wsgi:application`
 - Variables de entorno: ver `.env.example`
+
+## Tiempo real y capturas
+- **Pusher** (`PUSHER_APP_ID`, `PUSHER_KEY`, `PUSHER_SECRET`, `PUSHER_CLUSTER`): cada paso nuevo se emite en el canal
+  privado `private-peaje` (autorizado en `/pusher/auth` con la sesión). Panel, KPIs, gráfica y banner de alertas se
+  actualizan sin recargar. Sin Pusher, el panel consulta `/panel/datos` cada 10 s.
+- **Capturas**: el frame que registró el paso se guarda en Cloudinary si existe `CLOUDINARY_URL`; si no, en
+  `web/media/capturas/` (en Render el disco es efímero: configurar Cloudinary en producción).
+- El modo caseta usa siempre la caseta **"Peaje IAP"** (migración 0004); las demás se conservan con su historial.

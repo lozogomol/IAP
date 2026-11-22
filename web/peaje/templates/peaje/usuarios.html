@@ -2,76 +2,93 @@
 {% block titulo %}Usuarios{% endblock %}
 {% block head %}
 <style>
-  .seccion { margin-bottom: 1.25rem; }
-  .lista { display: grid; gap: .6rem; }
-  .item { display: flex; align-items: center; gap: .75rem; flex-wrap: wrap; padding: .75rem;
-          border: 1px solid var(--borde); border-radius: 12px; background: rgba(2,6,23,.45); }
-  .item .quien { flex: 1 1 220px; min-width: 0; }
-  .item .quien b { display: block; }
-  .item .quien span { font-size: .85rem; color: var(--tenue); word-break: break-all; }
-  .item form { margin: 0; display: flex; gap: .4rem; align-items: center; }
-  .item select { min-height: 36px; padding: .3rem .5rem; }
-  .chip { font-size: .75rem; padding: .1rem .55rem; border-radius: 999px; border: 1px solid var(--borde); }
-  .chip.on { color: var(--ok); border-color: rgba(74,222,128,.5); }
-  .chip.off { color: var(--peligro); border-color: rgba(248,113,113,.5); }
-  .contador { display: inline-grid; place-items: center; min-width: 1.6rem; height: 1.6rem; padding: 0 .4rem;
-              border-radius: 999px; background: var(--nebula-3); font-size: .85rem; margin-left: .4rem; }
+  .seccion { margin-bottom: 1.75rem; }
+  .seccion h2 { display: flex; align-items: center; gap: .5rem; }
+  .contador { display: inline-block; min-width: 1.5rem; padding: 0 .35rem; text-align: center; background: var(--azul); color: #fff; font-size: .8rem; }
+  .tabla form { margin: 0; display: flex; gap: .4rem; align-items: center; }
+  .tabla select { min-height: 34px; padding: .25rem .5rem; font-size: .9rem; }
+  .tabla .email { word-break: break-all; }
+  .acciones { display: flex; gap: .4rem; flex-wrap: wrap; }
+  .oculto { position: absolute; left: -9999px; }
 </style>
 {% endblock %}
 {% block contenido %}
 <h1>Usuarios</h1>
 
-<section class="tarjeta seccion">
-  <h2>Solicitudes pendientes{% if pendientes %}<span class="contador">{{ pendientes|length }}</span>{% endif %}</h2>
-  {% if pendientes %}
-  <div class="lista">
-    {% for u in pendientes %}
-    <div class="item">
-      <div class="quien"><b>{{ u.nombre }}</b><span>{{ u.email_google }}{% if u.solicitado_at %} · {{ u.solicitado_at|date:"d/m/Y H:i" }}{% endif %}</span></div>
-      <form method="post" action="/usuarios/{{ u.id }}">{% csrf_token %}
-        <input type="hidden" name="accion" value="aprobar">
-        <button class="boton primario" type="submit">Aprobar</button>
-      </form>
-      <form method="post" action="/usuarios/{{ u.id }}">{% csrf_token %}
-        <input type="hidden" name="accion" value="rechazar">
-        <button class="boton peligro" type="submit">Rechazar</button>
-      </form>
-    </div>
-    {% endfor %}
+<section class="seccion" aria-labelledby="t-pend">
+  <h2 id="t-pend">Solicitudes pendientes{% if pendientes %}<span class="contador">{{ pendientes|length }}</span>{% endif %}</h2>
+  <div class="tabla-caja">
+    <table class="tabla">
+      <thead><tr><th scope="col">Email</th><th scope="col">Nombre</th><th scope="col">Solicitado</th><th scope="col">Acción</th></tr></thead>
+      <tbody>
+        {% for u in pendientes %}
+        <tr>
+          <td class="email">{{ u.email_google }}</td>
+          <td>{{ u.nombre }}</td>
+          <td class="tenue">{% if u.solicitado_at %}{{ u.solicitado_at|date:"d/m/Y H:i" }}{% else %}—{% endif %}</td>
+          <td>
+            <div class="acciones">
+              <form method="post" action="/usuarios/{{ u.id }}">{% csrf_token %}
+                <input type="hidden" name="accion" value="aprobar">
+                <button class="boton chico primario" type="submit">Aprobar</button>
+              </form>
+              <form method="post" action="/usuarios/{{ u.id }}">{% csrf_token %}
+                <input type="hidden" name="accion" value="rechazar">
+                <button class="boton chico peligro" type="submit">Rechazar</button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="4" class="vacio">No hay solicitudes pendientes.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
   </div>
-  {% else %}
-  <p class="tenue" style="margin:0">No hay solicitudes pendientes.</p>
-  {% endif %}
 </section>
 
-<section class="tarjeta seccion">
-  <h2>Usuarios registrados</h2>
-  <div class="lista">
-    {% for u in usuarios %}
-    <div class="item">
-      <div class="quien"><b>{{ u.nombre }}</b><span>{{ u.email_google }}</span></div>
-      <span class="chip {% if u.activo %}on{% else %}off{% endif %}">{% if u.activo %}activo{% else %}inactivo{% endif %}</span>
-      {% if u.id == usuario_sesion.usuario_id %}
-        <span class="rol {{ u.rol }}">{{ u.rol }}</span><span class="tenue" style="font-size:.85rem">(tú)</span>
-      {% else %}
-      <form method="post" action="/usuarios/{{ u.id }}">{% csrf_token %}
-        <input type="hidden" name="accion" value="rol">
-        <label class="tenue" for="rol-{{ u.id }}" style="font-size:.85rem">Rol</label>
-        <select id="rol-{{ u.id }}" name="rol">
-          {% for valor, texto in roles %}<option value="{{ valor }}" {% if valor == u.rol %}selected{% endif %}>{{ texto }}</option>{% endfor %}
-        </select>
-        <button class="boton" type="submit">Guardar</button>
-      </form>
-      <form method="post" action="/usuarios/{{ u.id }}">{% csrf_token %}
-        {% if u.activo %}
-        <input type="hidden" name="accion" value="desactivar"><button class="boton peligro" type="submit">Desactivar</button>
-        {% else %}
-        <input type="hidden" name="accion" value="activar"><button class="boton" type="submit">Activar</button>
-        {% endif %}
-      </form>
-      {% endif %}
-    </div>
-    {% endfor %}
+<section class="seccion" aria-labelledby="t-usu">
+  <h2 id="t-usu">Usuarios registrados</h2>
+  <div class="tabla-caja">
+    <table class="tabla">
+      <thead><tr><th scope="col">Email</th><th scope="col">Nombre</th><th scope="col">Rol</th><th scope="col">Activo</th></tr></thead>
+      <tbody>
+        {% for u in usuarios %}
+        <tr>
+          <td class="email">{{ u.email_google }}</td>
+          <td>{{ u.nombre }}{% if u.id == usuario_sesion.usuario_id %} <span class="tenue">(tú)</span>{% endif %}</td>
+          <td>
+            {% if u.id == usuario_sesion.usuario_id %}
+              {{ u.get_rol_display }}
+            {% else %}
+            <form method="post" action="/usuarios/{{ u.id }}">{% csrf_token %}
+              <input type="hidden" name="accion" value="rol">
+              <label class="oculto" for="rol-{{ u.id }}">Rol de {{ u.nombre }}</label>
+              <select id="rol-{{ u.id }}" name="rol" onchange="this.form.submit()">
+                {% for valor, texto in roles %}<option value="{{ valor }}" {% if valor == u.rol %}selected{% endif %}>{{ texto }}</option>{% endfor %}
+              </select>
+              <noscript><button class="boton chico" type="submit">Guardar</button></noscript>
+            </form>
+            {% endif %}
+          </td>
+          <td>
+            <div class="acciones">
+              {% if u.activo %}<span class="badge verde">Activo</span>{% else %}<span class="badge e-inactiva">Inactivo</span>{% endif %}
+              {% if u.id != usuario_sesion.usuario_id %}
+              <form method="post" action="/usuarios/{{ u.id }}">{% csrf_token %}
+                {% if u.activo %}
+                <input type="hidden" name="accion" value="desactivar"><button class="boton chico" type="submit">Desactivar</button>
+                {% else %}
+                <input type="hidden" name="accion" value="activar"><button class="boton chico" type="submit">Activar</button>
+                {% endif %}
+              </form>
+              {% endif %}
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
   </div>
 </section>
 {% endblock %}

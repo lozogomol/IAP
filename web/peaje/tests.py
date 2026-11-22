@@ -73,7 +73,8 @@ class DatosInicialesTests(TestCase):
     def test_cargados(self):
         self.assertEqual(Vehiculo.objects.count(), 20)
         self.assertEqual(Tarifa.objects.count(), 10)
-        self.assertEqual(Caseta.objects.count(), 3)
+        self.assertEqual(Caseta.objects.count(), 4)  # 3 iniciales + "Peaje IAP" (0004)
+        self.assertTrue(Caseta.objects.filter(nombre="Peaje IAP").exists())
         self.assertTrue(Usuario.objects.filter(email_google="lozogomol@gmail.com", rol="admin").exists())
         self.assertEqual(Tarifa.objects.get(categoria="camion", ejes=6).monto, Decimal("60"))
         self.assertEqual(Paso.objects.filter(estado="no_registrada").count(), 2)
@@ -184,10 +185,11 @@ class PaginasProtegidasTests(TestCase):
         u = Usuario.objects.create(email_google="a@x.com", nombre="Ana Operadora", rol="operador")
         entrar(self.client, u)
         r = self.client.get("/vehiculos")
-        for texto in ("Panel", "Caseta", "Consulta", "Vehículos", "Pasos", "Alertas", "Chat", "Estado",
-                      "Ana Operadora", "operador", "Salir"):
+        for texto in ("Panel", "Caseta", "Consulta", "Vehículos", "Alertas", "Estado",
+                      "Ana Operadora", "operador", "Salir", "Peaje IAP"):
             self.assertContains(r, texto)
-        self.assertNotContains(r, 'href="/usuarios"')
+        for ruta in ("/usuarios", "/pasos", "/chat", "/admin/"):
+            self.assertNotContains(r, f'href="{ruta}"')
 
     def test_rol_requerido(self):
         vista = rol_requerido("admin")(lambda request: HttpResponse("ok"))
@@ -220,7 +222,10 @@ class EstadoTests(TestCase):
 
     def test_json(self):
         r = self.client.get("/estado?format=json")
-        self.assertEqual(r.json(), {"web": "ok", "inferencia": "sin configurar (falta INFERENCE_URL)"})
+        d = r.json()
+        self.assertEqual((d["web"], d["inferencia"], d["base_datos"]),
+                         ("ok", "sin configurar (falta INFERENCE_URL)", "ok"))
+        self.assertIn("latencia_bd_ms", d)
 
 
 @api_view(["GET"])

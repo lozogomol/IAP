@@ -1,0 +1,121 @@
+{% extends "peaje/base.html" %}
+{% block titulo %}Vehículos{% endblock %}
+{% block head %}
+<style>
+  .registro { margin-bottom: 1.25rem; }
+  .registro form { display: grid; gap: .75rem; grid-template-columns: minmax(130px, .8fr) minmax(180px, 1.6fr) minmax(120px, .7fr) auto; align-items: end; }
+  .registro input { width: 100%; }
+  #id_placa { text-transform: uppercase; letter-spacing: .06em; font-weight: 600; }
+  .buscar { display: flex; gap: .5rem; flex-wrap: wrap; }
+  .buscar input { width: 200px; text-transform: uppercase; }
+  .acciones { display: flex; gap: .4rem; flex-wrap: wrap; align-items: center; }
+  .acciones form { margin: 0; display: flex; gap: .3rem; }
+  .acciones input[type=number] { width: 92px; min-height: 32px; padding: .25rem .45rem; font-size: .85rem; }
+  .fecha { font-size: .84rem; white-space: nowrap; }
+  .captura-celda { display: flex; align-items: center; gap: .6rem; }
+  @media (max-width: 760px) {
+    .registro form { grid-template-columns: 1fr 1fr; }
+    .registro .campo-propietario { grid-column: 1 / -1; order: -1; }
+    .registro .boton { grid-column: 1 / -1; }
+    .buscar, .buscar input { width: 100%; }
+    .buscar input { flex: 1; }
+  }
+</style>
+{% endblock %}
+{% block contenido %}
+<div class="encabezado">
+  <h1>Vehículos</h1>
+  <form class="buscar" method="get" action="/vehiculos" role="search">
+    <label for="q" class="tenue" style="position:absolute;left:-9999px">Buscar por placa</label>
+    <input id="q" name="q" value="{{ q }}" placeholder="Buscar placa" maxlength="12" autocomplete="off">
+    <button class="boton" type="submit">Buscar</button>
+    {% if q %}<a class="boton" href="/vehiculos">Limpiar</a>{% endif %}
+  </form>
+</div>
+
+<section class="tarjeta registro" aria-labelledby="t-registro">
+  <h2 id="t-registro">Registrar vehículo</h2>
+  <form method="post" action="/vehiculos" novalidate>
+    {% csrf_token %}
+    <div class="campo">
+      <label for="{{ form.placa.id_for_label }}">{{ form.placa.label }}</label>
+      {{ form.placa }}
+      {% for e in form.placa.errors %}<span class="error-campo">{{ e }}</span>{% endfor %}
+    </div>
+    <div class="campo campo-propietario">
+      <label for="{{ form.propietario.id_for_label }}">{{ form.propietario.label }}</label>
+      {{ form.propietario }}
+      {% for e in form.propietario.errors %}<span class="error-campo">{{ e }}</span>{% endfor %}
+    </div>
+    <div class="campo">
+      <label for="{{ form.saldo.id_for_label }}">{{ form.saldo.label }}</label>
+      {{ form.saldo }}
+      {% for e in form.saldo.errors %}<span class="error-campo">{{ e }}</span>{% endfor %}
+    </div>
+    <button class="boton primario" type="submit">Registrar</button>
+  </form>
+</section>
+
+<div class="tabla-caja">
+  <table class="tabla">
+    <thead>
+      <tr>
+        <th scope="col">Última captura</th>
+        <th scope="col">Placa</th>
+        <th scope="col">Propietario</th>
+        <th scope="col" class="num">Saldo</th>
+        <th scope="col">Estado</th>
+        {% if es_admin %}<th scope="col">Acciones</th>{% endif %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for v in vehiculos %}
+      <tr>
+        <td>
+          <div class="captura-celda">
+            {% if v.ultima_captura %}
+              <button type="button" class="mini-btn" data-ampliar="{{ v.ultima_captura }}"
+                      data-titulo="{{ v.placa }} · {{ v.ultimo_paso|date:'d/m/Y H:i:s' }}" aria-label="Ampliar captura de {{ v.placa }}">
+                <img class="mini" src="{{ v.ultima_captura }}" alt="" loading="lazy"></button>
+            {% elif v.ultimo_paso %}
+              <span class="sin-captura">Sin imagen</span>
+            {% endif %}
+            {% if v.ultimo_paso %}
+              <span class="fecha">{{ v.ultimo_paso|date:"d/m/Y" }}<br><span class="tenue">{{ v.ultimo_paso|date:"H:i:s" }}</span></span>
+            {% else %}
+              <span class="tenue fecha">Sin pasos</span>
+            {% endif %}
+          </div>
+        </td>
+        <td class="placa">{{ v.placa }}</td>
+        <td>{{ v.propietario }}</td>
+        <td class="num">Bs {{ v.saldo }}</td>
+        <td>{% if v.activo %}<span class="badge verde">Activo</span>{% else %}<span class="badge e-inactiva">Inactivo</span>{% endif %}</td>
+        {% if es_admin %}
+        <td>
+          <div class="acciones">
+            <form method="post" action="/vehiculos/{{ v.id }}">{% csrf_token %}
+              <input type="hidden" name="accion" value="recargar">
+              <label for="monto-{{ v.id }}" style="position:absolute;left:-9999px">Monto a recargar para {{ v.placa }}</label>
+              <input id="monto-{{ v.id }}" type="number" name="monto" min="0.01" max="10000" step="0.01" placeholder="Bs" required>
+              <button class="boton chico" type="submit">Recargar</button>
+            </form>
+            <form method="post" action="/vehiculos/{{ v.id }}">{% csrf_token %}
+              {% if v.activo %}
+              <input type="hidden" name="accion" value="desactivar"><button class="boton chico peligro" type="submit">Desactivar</button>
+              {% else %}
+              <input type="hidden" name="accion" value="activar"><button class="boton chico primario" type="submit">Activar</button>
+              {% endif %}
+            </form>
+          </div>
+        </td>
+        {% endif %}
+      </tr>
+      {% empty %}
+      <tr><td colspan="{% if es_admin %}6{% else %}5{% endif %}" class="vacio">
+        {% if q %}No hay vehículos con «{{ q }}».{% else %}No hay vehículos registrados.{% endif %}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

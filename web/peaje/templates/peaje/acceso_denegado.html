@@ -4,51 +4,55 @@
 {% block head %}
 <style>
   main { min-height: 100vh; min-height: 100dvh; display: flex; flex-direction: column; align-items: center;
-         justify-content: center; gap: 1.5rem; padding: 2rem 1rem; }
-  .denegado { max-width: 480px; width: 100%; text-align: center; padding: 2rem 1.75rem; }
-  .icono-alto { width: 72px; height: 72px; margin: 0 auto 1rem; border-radius: 50%; display: grid; place-items: center;
-                border: 1px solid rgba(248,113,113,.5); background: rgba(127,29,29,.25);
-                box-shadow: 0 0 30px rgba(248,113,113,.25); }
-  .icono-alto svg { width: 36px; height: 36px; }
-  .denegado h1 { color: #fecaca; margin-bottom: .5rem; }
-  .cuenta { display: inline-block; padding: .3rem .8rem; border-radius: 999px; border: 1px solid var(--borde);
-            background: rgba(2,6,23,.6); font-size: .9rem; word-break: break-all; }
-  .acciones { display: flex; flex-direction: column; gap: .6rem; margin-top: 1.5rem; }
+         justify-content: center; gap: 1.25rem; padding: 2rem 1rem; }
+  main .mensajes { max-width: 460px; width: 100%; margin: 0; }
+  .acceso { width: 100%; max-width: 460px; border: 1px solid var(--borde); background: #fff; }
+  .acceso-cab { padding: 1.6rem 1.5rem 1.4rem; text-align: center; }
+  .acceso-cab svg { width: 46px; height: 46px; margin: 0 auto .6rem; color: #fff; display: block; }
+  .acceso-cab .titulo { font-size: 1.5rem; font-weight: 800; margin: 0; }
+  .acceso-cab p { margin: .2rem 0 0; color: #dbe5ff; font-weight: 500; }
+  .acceso-cuerpo { padding: 1.5rem; text-align: center; }
+  .acceso-cuerpo h1 { color: var(--rojo); font-size: 1.3rem; margin: 0 0 .5rem; }
+  .cuenta { display: inline-block; padding: .3rem .7rem; border: 1px solid var(--borde); background: var(--suave);
+            font-size: .9rem; word-break: break-all; }
+  .acciones { display: flex; flex-direction: column; gap: .6rem; margin-top: 1.25rem; }
   .acciones form { margin: 0; }
   .acciones .boton { width: 100%; }
-  .aviso-pendiente { border: 1px solid rgba(251,146,60,.5); border-radius: 12px; padding: .7rem; color: #fed7aa;
-                     background: rgba(124,45,18,.25); font-size: .92rem; margin: 0; }
-  .pie { text-align: center; font-size: .8rem; color: var(--tenue); }
-  main .mensajes { max-width: 480px; width: 100%; margin: 0; }
+  .aviso-pendiente { border: 1px solid #fdba74; border-left: 4px solid var(--naranja); padding: .7rem; background: #fff7ed;
+                     color: #7c2d12; font-size: .92rem; margin: 0; text-align: left; }
+  .pie { text-align: center; font-size: .82rem; color: var(--tenue); }
 </style>
 {% endblock %}
 {% block contenido %}
-<section class="tarjeta denegado">
-  <div class="icono-alto">
-    <svg viewBox="0 0 24 24" fill="none" stroke="#f87171" stroke-width="2" stroke-linecap="round" aria-hidden="true">
-      <circle cx="12" cy="12" r="9"/><path d="M5.7 5.7l12.6 12.6"/></svg>
+<section class="acceso">
+  <div class="acceso-cab galaxia">
+    {% include "peaje/_icono.html" %}
+    <p class="titulo" style="color:#fff">Peaje IAP</p>
+    <p>Inteligencia Artificial de Peaje</p>
   </div>
-  <h1>Acceso denegado</h1>
-  <p>Acceso denegado: tu cuenta de Google no está autorizada en IAP.</p>
-  {% if email %}<p><span class="cuenta">{{ email }}</span></p>{% endif %}
-  <div class="acciones">
-    {% if email %}
-      {% if pendiente %}
-        <p class="aviso-pendiente">Tu solicitud de acceso está pendiente. Un administrador debe aprobarla.</p>
-      {% elif desactivado %}
-        <p class="aviso-pendiente">Tu cuenta está desactivada. Contacta a un administrador.</p>
+  <div class="acceso-cuerpo">
+    <h1>Acceso denegado</h1>
+    <p>Acceso denegado: tu cuenta de Google no está autorizada en IAP.</p>
+    {% if email %}<p><span class="cuenta">{{ email }}</span></p>{% endif %}
+    <div class="acciones">
+      {% if email %}
+        {% if pendiente %}
+          <p class="aviso-pendiente">Tu solicitud de acceso está pendiente. Un administrador debe aprobarla.</p>
+        {% elif desactivado %}
+          <p class="aviso-pendiente">Tu cuenta está desactivada. Contacta a un administrador.</p>
+        {% else %}
+          <form method="post" action="/acceso-denegado/solicitar">
+            {% csrf_token %}
+            <button class="boton primario grande" type="submit">Solicitar acceso</button>
+          </form>
+          <p class="tenue pequeno" style="margin:0">Se enviará tu correo y nombre de Google a un administrador.</p>
+        {% endif %}
       {% else %}
-        <form method="post" action="/acceso-denegado/solicitar">
-          {% csrf_token %}
-          <button class="boton primario grande" type="submit">Solicitar acceso</button>
-        </form>
-        <p class="tenue" style="font-size:.85rem;margin:0">Se enviará tu correo y nombre de Google a un administrador.</p>
+        <p class="tenue pequeno" style="margin:0">Inicia sesión con Google para poder solicitar acceso.</p>
       {% endif %}
-    {% else %}
-      <p class="tenue" style="font-size:.9rem;margin:0">Inicia sesión con Google para poder solicitar acceso.</p>
-    {% endif %}
-    <a class="boton" href="/login">Probar con otra cuenta</a>
+      <a class="boton" href="/login">Probar con otra cuenta</a>
+    </div>
   </div>
 </section>
-<footer class="pie">IAP · Inteligencia Artificial de Peaje</footer>
+<footer class="pie">Peaje IAP · Inteligencia Artificial de Peaje</footer>
 {% endblock %}

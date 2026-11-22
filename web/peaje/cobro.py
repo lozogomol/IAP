@@ -130,6 +130,7 @@ def paso_a_dict(paso, info=None):
         "nota": info.get("nota", ""),
         "confianza": paso.confianza_ocr,
         "caseta": paso.caseta_id,
+        "imagen_url": paso.imagen_url or None,
         "created_at": paso.created_at.isoformat(),
     }
 
@@ -167,4 +168,14 @@ def consultar_placa(texto):
             "saldo": str(vehiculo.saldo), "activo": vehiculo.activo,
         }
     datos["estado_texto"] = ESTADOS_CONSULTA[datos["estado"]]
+    ultimo = Paso.objects.filter(placa_normalizada=placa).order_by("-created_at").first() if placa else None
+    datos["ultimo_paso"] = None
+    if ultimo:
+        local = timezone.localtime(ultimo.created_at)
+        datos["ultimo_paso"] = {
+            "fecha": local.strftime("%d/%m/%Y"), "hora": local.strftime("%H:%M:%S"),
+            "created_at": ultimo.created_at.isoformat(), "estado": ultimo.estado,
+            "estado_texto": ultimo.get_estado_display(), "monto": str(ultimo.monto),
+            "imagen_url": ultimo.imagen_url or None,
+        }
     return datos

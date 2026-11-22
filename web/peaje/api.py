@@ -8,7 +8,7 @@ from rest_framework.decorators import api_view, parser_classes
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 
-from . import cobro
+from . import cobro, panel
 from .inferencia import InferenciaNoDisponible, inferir
 from .models import Caseta, LecturaPlaca
 
@@ -75,6 +75,7 @@ def paso_frame(request):
         categoria=voto["categoria"], ejes=voto["ejes"],
     )
     if not duplicado:
+        panel.publicar_paso(paso, imagen)  # captura + evento en tiempo real (panel y alertas)
         cobro.limpiar_lecturas_viejas()
     return Response({**base, "resultado": "duplicado" if duplicado else "registrado", "votos": voto["votos"],
                      "paso": cobro.paso_a_dict(paso, info), "latencia_ms": _ms(t0)})
@@ -82,7 +83,8 @@ def paso_frame(request):
 
 @extend_schema(
     summary="Consulta el estado de una placa",
-    description="Estados: `habilitada`, `saldo_insuficiente`, `inactiva`, `no_registrada` (+ sugerencias).",
+    description=("Estados: `habilitada`, `saldo_insuficiente`, `inactiva`, `no_registrada` (+ sugerencias). "
+                 "`ultimo_paso`: último paso registrado de la placa (hora, estado, captura) o null."),
     parameters=[OpenApiParameter("placa", str, required=True)],
     responses={200: _respuesta, 400: _respuesta},
 )

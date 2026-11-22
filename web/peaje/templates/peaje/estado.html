@@ -2,31 +2,60 @@
 {% block titulo %}Estado{% endblock %}
 {% block head %}
 <style>
-  .filas { display: grid; gap: .75rem; }
-  .fila { display: flex; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
-  .ok { color: var(--ok); font-weight: 600; }
-  .mal { color: var(--peligro); font-weight: 600; }
-  .aviso { color: #fbbf24; font-weight: 600; }
-  pre { background: rgba(2, 6, 23, 0.7); border: 1px solid var(--borde); border-radius: 6px; padding: .75rem;
-        overflow-x: auto; font-size: .85rem; margin: 0; }
+  .servicios { display: grid; gap: 1rem; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-bottom: 1rem; }
+  .servicio { display: flex; flex-direction: column; gap: .5rem; }
+  .servicio h2 { margin: 0; display: flex; align-items: center; gap: .6rem; }
+  .luz { width: 14px; height: 14px; flex: 0 0 auto; background: var(--gris); }
+  .luz.ok { background: #16a34a; box-shadow: 0 0 0 3px #dcfce7; }
+  .luz.mal { background: #dc2626; box-shadow: 0 0 0 3px #fee2e2; }
+  .luz.aviso { background: #ea580c; box-shadow: 0 0 0 3px #ffedd5; }
+  .valor-estado { font-weight: 700; }
+  .valor-estado.ok { color: var(--verde); }
+  .valor-estado.mal { color: var(--rojo); }
+  .valor-estado.aviso { color: var(--naranja); }
+  .detalles { list-style: none; margin: .25rem 0 0; padding: 0; font-size: .9rem; }
+  .detalles li { display: flex; justify-content: space-between; gap: .75rem; padding: .35rem 0; border-top: 1px solid var(--borde); }
+  .detalles li span:first-child { color: var(--tenue); }
+  .error { font-size: .82rem; color: var(--tenue); word-break: break-word; }
+  @media (max-width: 860px) { .servicios { grid-template-columns: 1fr; } }
 </style>
 {% endblock %}
 {% block contenido %}
-<h1>Estado del sistema</h1>
-<div class="tarjeta filas">
-  <div class="fila"><span>Servidor web</span><span class="ok">{{ datos.web }}</span></div>
-  <div class="fila">
-    <span>Endpoint de inferencia</span>
-    <span class="{% if datos.inferencia == 'ok' %}ok{% elif datos.inferencia == 'caida' %}mal{% else %}aviso{% endif %}">
-      {{ datos.inferencia }}</span>
-  </div>
-  {% if datos.latencia_ms %}
-  <div class="fila"><span>Latencia</span><span>{{ datos.latencia_ms }} ms</span></div>
-  {% endif %}
-  {% if datos.error %}
-  <div class="fila"><span>Error</span><span class="tenue">{{ datos.error }}</span></div>
-  {% endif %}
-  {% if detalle_json %}<pre>{{ detalle_json }}</pre>{% endif %}
+<div class="encabezado">
+  <h1>Estado del sistema</h1>
+  <a class="boton primario" href="/estado">Volver a comprobar</a>
 </div>
-<p class="tenue" style="font-size:.85rem">JSON: <a href="/estado?format=json">/estado?format=json</a></p>
+<div class="servicios">
+  <section class="tarjeta servicio">
+    <h2><span class="luz ok" aria-hidden="true"></span>Web</h2>
+    <span class="valor-estado ok">Funcionando</span>
+  </section>
+
+  <section class="tarjeta servicio">
+    <h2><span class="luz {% if bd_ok %}ok{% else %}mal{% endif %}" aria-hidden="true"></span>Base de datos</h2>
+    <span class="valor-estado {% if bd_ok %}ok{% else %}mal{% endif %}">{% if bd_ok %}Funcionando{% else %}Sin conexión{% endif %}</span>
+    {% if bd_ok %}<ul class="detalles"><li><span>Latencia</span><b>{{ datos.latencia_bd_ms }} ms</b></li></ul>{% endif %}
+  </section>
+
+  <section class="tarjeta servicio">
+    {% if datos.inferencia == "ok" %}
+      <h2><span class="luz ok" aria-hidden="true"></span>Inferencia</h2>
+      <span class="valor-estado ok">Funcionando</span>
+      <ul class="detalles">
+        <li><span>Latencia</span><b>{{ datos.latencia_ms }} ms</b></li>
+        {% for nombre, estado in modelos %}
+        <li><span>{{ nombre }}</span><b class="valor-estado {% if estado == 'cargado' %}ok{% else %}aviso{% endif %}">{{ estado|capfirst }}</b></li>
+        {% endfor %}
+      </ul>
+    {% elif datos.inferencia == "caida" %}
+      <h2><span class="luz mal" aria-hidden="true"></span>Inferencia</h2>
+      <span class="valor-estado mal">Sin respuesta</span>
+      {% if datos.error %}<p class="error">{{ datos.error }}</p>{% endif %}
+    {% else %}
+      <h2><span class="luz aviso" aria-hidden="true"></span>Inferencia</h2>
+      <span class="valor-estado aviso">{{ datos.inferencia|capfirst }}</span>
+    {% endif %}
+  </section>
+</div>
+<p class="tenue pequeno">JSON para monitoreo: <a href="/estado?format=json">/estado?format=json</a></p>
 {% endblock %}

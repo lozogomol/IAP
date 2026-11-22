@@ -1,5 +1,6 @@
 """Tests del modo caseta (votación, cobro, API), consulta y solicitudes de acceso."""
 import json
+import tempfile
 from datetime import timedelta
 from decimal import Decimal
 from unittest import mock
@@ -123,6 +124,7 @@ class RegistrarPasoTests(TestCase):
         self.assertFalse(dup)
 
 
+@override_settings(MEDIA_ROOT=tempfile.mkdtemp(prefix="iap-test-"), CLOUDINARY_URL="", PUSHER_APP_ID="")
 class ApiFrameTests(TestCase):
     def setUp(self):
         self.caseta = Caseta.objects.first()
@@ -205,7 +207,9 @@ class ConsultaTests(TestCase):
         self.assertContains(self.client.get("/consulta"), "Consulta de placa")
         r = self.client.get("/caseta")
         self.assertContains(r, "Modo caseta")
+        self.assertContains(r, "Iniciar reconocimiento")
         self.assertContains(r, 'facingMode: { ideal: "environment" }')
+        self.assertNotContains(r, "<select")  # sin selector de caseta
 
 
 @override_settings(GOOGLE_CLIENT_ID="cliente-test.apps.googleusercontent.com")

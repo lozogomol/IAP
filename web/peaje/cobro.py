@@ -9,10 +9,10 @@ from django.utils import timezone
 from .models import Alerta, Caseta, LecturaPlaca, Paso, Tarifa, Vehiculo
 from .placas import normalizar_placa, sugerencias
 
-VENTANA_VOTO = timedelta(seconds=3)
-ANTIDUPLICADO = timedelta(seconds=60)
+VENTANA_VOTO = timedelta(seconds=4)
+ANTIDUPLICADO = timedelta(seconds=30)
 MIN_VOTOS = 2
-CONFIANZA_SOLA = 0.85
+CONFIANZA_SOLA = 0.80  # una sola lectura con confianza >= 0.80 basta
 CERO = Decimal("0")
 EJES_POR_DEFECTO = 2  # mientras no exista M3 (conteo de ejes), la tarifa de la categoría detectada usa 2 ejes
 
@@ -20,9 +20,9 @@ EJES_POR_DEFECTO = 2  # mientras no exista M3 (conteo de ejes), la tarifa de la 
 # --- Votación entre frames ----------------------------------------------------------------------
 
 def votar(caseta, ahora=None):
-    """Placa ganadora entre las lecturas de la caseta de los últimos 3 s, o None si aún no hay consenso.
+    """Placa ganadora entre las lecturas de la caseta de los últimos 4 s, o None si aún no hay consenso.
 
-    Gana la más repetida; vale si tiene >= 2 lecturas o alguna lectura con confianza > 0.85.
+    Gana la más repetida; vale si tiene >= 2 lecturas o alguna lectura con confianza >= 0.80.
     Devuelve {"placa", "votos", "confianza", "categoria", "ejes"}.
     """
     ahora = ahora or timezone.now()
@@ -34,7 +34,7 @@ def votar(caseta, ahora=None):
     placa, lecturas = max(grupos.items(),
                           key=lambda kv: (len(kv[1]), max(l.confianza or 0 for l in kv[1])))
     mejor = max(l.confianza or 0 for l in lecturas)
-    if len(lecturas) < MIN_VOTOS and mejor <= CONFIANZA_SOLA:
+    if len(lecturas) < MIN_VOTOS and mejor < CONFIANZA_SOLA:
         return None
     # Categoría (M2): la más repetida entre las lecturas de la placa ganadora; ejes (M3) solo si llegaron.
     votos_cat = Counter(l.categoria for l in lecturas if l.categoria)
@@ -47,6 +47,12 @@ def votar(caseta, ahora=None):
         "categoria": categoria,
         "ejes": con_ejes.ejes if con_ejes else None,
     }
+
+
+def votos_de(caseta, placa, ahora=None):
+    """Lecturas de esa placa en la caseta dentro de la ventana de votación."""
+    ahora = ahora or timezone.now()
+    return LecturaPlaca.objects.filter(caseta=caseta, placa=placa, created_at__gte=ahora - VENTANA_VOTO).count()
 
 
 def limpiar_lecturas_viejas():

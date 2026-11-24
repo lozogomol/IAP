@@ -5,13 +5,15 @@ from datetime import timedelta
 from decimal import Decimal
 from unittest import mock
 
+import requests
+
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from . import cobro
 from .auth import emitir_jwt
-from .inferencia import InferenciaNoDisponible, interpretar
+from .inferencia import InferenciaNoDisponible, interpretar, interpretar_vehiculo
 from .models import Alerta, Caseta, LecturaPlaca, Paso, Usuario, Vehiculo
 from .tests import VERIFICAR, entrar
 
@@ -22,8 +24,12 @@ def _jpeg():
     return SimpleUploadedFile("frame.jpg", b"\xff\xd8\xff\xe0falso", content_type="image/jpeg")
 
 
-def _lectura(placa, confianza=0.8, categoria="", ejes=None):
-    return {"placa": placa, "texto_leido": placa, "confianza": confianza, "categoria": categoria, "ejes": ejes}
+def _lectura(placa, confianza=0.7, categoria="", ejes=None, caja=None):
+    return {"placa": placa, "texto_leido": placa, "confianza": confianza, "categoria": categoria, "ejes": ejes,
+            "caja": caja}
+
+
+SIN_VEHICULO = {"categoria": "", "confianza_categoria": None, "caja_vehiculo": None, "cajas_placas": []}
 
 
 class InterpretarTests(TestCase):
@@ -45,9 +51,12 @@ class InterpretarTests(TestCase):
         self.assertEqual((lec[0]["categoria"], lec[0]["ejes"]), ("", None))
 
     def test_respuesta_con_m2_sin_m3(self):
-        lec = interpretar({"placas": [{"texto": "987PLB", "confianza_lectura": 90}], "categoria": "minibus",
-                           "confianza_categoria": 88.1, "caja_vehiculo": [1, 2, 3, 4], "ejes": None})
-        self.assertEqual((lec[0]["categoria"], lec[0]["ejes"]), ("minibus", None))
+        datos = {"placas": [{"texto": "987PLB", "confianza_lectura": 90, "caja": [5, 6, 7.4, 8]}, {"texto": "XX"}],
+                 "categoria": "minibus", "confianza_categoria": 88.1, "caja_vehiculo": [1, 2, 3, 4], "ejes": None}
+        lec = interpretar(datos)
+        self.assertEqual((lec[0]["categoria"], lec[0]["ejes"], lec[0]["caja"]), ("minibus", None, [5, 6, 7, 8]))
+        self.assertEqual(interpretar_vehiculo(datos), {"categoria": "minibus", "confianza_categoria": 0.881,
+                                                       "caja_vehiculo": [1, 2, 3, 4], "cajas_placas": [[5, 6, 7, 8]]})
 
 
 class VotacionTests(TestCase):
@@ -64,8 +73,13 @@ class VotacionTests(TestCase):
         self.assertIsNone(cobro.votar(self.caseta))
 
     def test_una_lectura_alta_basta(self):
-        self._leer("2451KTP", 0.9)
+        self._leer("2451KTP", 0.80)
         self.assertEqual(cobro.votar(self.caseta)["placa"], "2451KTP")
+
+    def test_dos_lecturas_en_4s(self):
+        self._leer("2451KTP", 0.6, hace_s=3.5)
+        self._leer("2451KTP", 0.6)
+        self.assertEqual(cobro.votar(self.caseta)["votos"], 2)
 
     def test_gana_la_mas_repetida(self):
         self._leer("2451KTB", 0.8)
@@ -143,13 +157,13 @@ class RegistrarPasoTests(TestCase):
         self.assertEqual((paso.estado, paso.monto), ("no_registrada", Decimal("0")))
         self.assertEqual(Vehiculo.objects.get(placa="654TRB").saldo, Decimal("40"))
 
-    def test_antiduplicado_60s(self):
+    def test_antiduplicado_30s(self):
         p1, _, _ = cobro.registrar_paso(self.caseta.id, "3876LBD")
         p2, dup, _ = cobro.registrar_paso(self.caseta.id, "3876LBD")
         self.assertTrue(dup)
         self.assertEqual(p1.pk, p2.pk)
         self.assertEqual(Vehiculo.objects.get(placa="3876LBD").saldo, Decimal("240"))
-        Paso.objects.filter(pk=p1.pk).update(created_at=timezone.now() - timedelta(seconds=61))
+        Paso.objects.filter(pk=p1.pk).update(created_at=timezone.now() - timedelta(seconds=31))
         _, dup, _ = cobro.registrar_paso(self.caseta.id, "3876LBD")
         self.assertFalse(dup)
 
@@ -164,8 +178,8 @@ class ApiFrameTests(TestCase):
         self.client.get("/caseta")  # deja la cookie CSRF
         self.csrf = self.client.cookies["csrftoken"].value
 
-    def _frame(self, lecturas):
-        with mock.patch(INFERIR, return_value=(lecturas, 120)):
+    def _frame(self, lecturas, vehiculo=None):
+        with mock.patch(INFERIR, return_value=(lecturas, 120, vehiculo or SIN_VEHICULO)):
             return self.client.post("/api/v1/pasos/frame", {"imagen": _jpeg(), "caseta_id": self.caseta.id},
                                     HTTP_X_CSRFTOKEN=self.csrf)
 
@@ -174,7 +188,7 @@ class ApiFrameTests(TestCase):
         self.assertEqual(r.status_code, 401)
 
     def test_sin_csrf_403(self):
-        with mock.patch(INFERIR, return_value=([], 1)):
+        with mock.patch(INFERIR, return_value=([], 1, SIN_VEHICULO)):
             r = self.client.post("/api/v1/pasos/frame", {"imagen": _jpeg(), "caseta_id": self.caseta.id})
         self.assertEqual(r.status_code, 403)
 
@@ -183,20 +197,77 @@ class ApiFrameTests(TestCase):
                              HTTP_X_CSRFTOKEN=self.csrf)
         self.assertEqual(r.status_code, 400)
 
-    def test_sin_placa(self):
-        self.assertEqual(self._frame([]).json()["resultado"], "sin_placa")
+    def _post_error(self, efecto):
+        with mock.patch(INFERIR, side_effect=efecto):
+            return self.client.post("/api/v1/pasos/frame", {"imagen": _jpeg(), "caseta_id": self.caseta.id},
+                                    HTTP_X_CSRFTOKEN=self.csrf)
 
-    def test_vota_y_registra_una_sola_vez(self):
-        self.assertEqual(self._frame([_lectura("3876LBD", 0.7)]).json()["resultado"], "leyendo")
+    def test_sin_placa_devuelve_vehiculo_y_cajas(self):
+        vehiculo = {"categoria": "camion", "confianza_categoria": 0.91, "caja_vehiculo": [10, 20, 300, 400],
+                    "cajas_placas": [[50, 60, 90, 80]]}
+        d = self._frame([], vehiculo).json()
+        self.assertEqual((d["accion"], d["mensaje"], d["paso"]), ("sin_placa", "Buscando placa…", None))
+        lec = d["lectura"]
+        self.assertEqual((lec["placa"], lec["categoria"], lec["confianza_categoria"], lec["caja_vehiculo"],
+                          lec["cajas_placas"]), (None, "camion", 0.91, [10, 20, 300, 400], [[50, 60, 90, 80]]))
+        self.assertIn("latencia_ms", lec)
+
+    def test_esperando_confirmacion_y_registrado(self):
+        d = self._frame([_lectura("3876LBD", 0.7, caja=[1, 2, 3, 4])]).json()
+        self.assertEqual((d["accion"], d["mensaje"], d["votos"], d["votos_necesarios"], d["paso"]),
+                         ("esperando_confirmacion", "Leyendo 3876LBD (confirmando 1/2)", 1, 2, None))
+        self.assertEqual((d["lectura"]["placa"], d["lectura"]["confianza"], d["lectura"]["caja_placa"]),
+                         ("3876LBD", 0.7, [1, 2, 3, 4]))
+        self.assertFalse(Paso.objects.filter(placa_normalizada="3876LBD").exists())
         d = self._frame([_lectura("3876LBD", 0.75)]).json()
-        self.assertEqual(d["resultado"], "registrado")
+        self.assertEqual((d["accion"], d["mensaje"]), ("registrado", "Registrado: cobrado"))
         p = d["paso"]
         self.assertEqual((p["placa"], p["estado"], p["tarifa"], p["categoria"], p["ejes"]),
                          ("3876LBD", "cobrado", "10.00", "auto", 2))
-        self.assertIn("latencia_ms", d)
-        self.assertEqual(self._frame([_lectura("3876LBD", 0.9)]).json()["resultado"], "duplicado")
+        self.assertIn("latencia_ms", d["lectura"])
+
+    def test_una_lectura_confiable_registra_al_instante(self):
+        self.assertEqual(self._frame([_lectura("3876LBD", 0.80)]).json()["accion"], "registrado")
+
+    def test_duplicado_no_cobra_y_dice_hace_cuanto(self):
+        self._frame([_lectura("3876LBD", 0.9)])
+        p = Paso.objects.get(placa_normalizada="3876LBD", caseta=self.caseta)
+        Paso.objects.filter(pk=p.pk).update(created_at=timezone.now() - timedelta(seconds=25))
+        d = self._frame([_lectura("3876LBD", 0.9)]).json()
+        self.assertEqual((d["accion"], d["segundos_desde_ultimo_paso"], d["mensaje"], d["paso"]["id"]),
+                         ("duplicado", 25, "Ya registrado hace 25 s", p.pk))
+        # una lectura floja de la misma placa también se reconoce como ya registrada
+        LecturaPlaca.objects.all().delete()
+        self.assertEqual(self._frame([_lectura("3876LBD", 0.5)]).json()["accion"], "duplicado")
         self.assertEqual(Paso.objects.filter(placa_normalizada="3876LBD", caseta=self.caseta,
                                              usuario=self.admin).count(), 1)
+        self.assertEqual(Vehiculo.objects.get(placa="3876LBD").saldo, Decimal("240"))
+
+    def test_registra_de_nuevo_pasados_30s(self):
+        self._frame([_lectura("3876LBD", 0.9)])
+        Paso.objects.update(created_at=timezone.now() - timedelta(seconds=31))
+        LecturaPlaca.objects.all().delete()
+        self.assertEqual(self._frame([_lectura("3876LBD", 0.9)]).json()["accion"], "registrado")
+
+    def test_cada_frame_queda_en_el_log(self):
+        with self.assertLogs("peaje.caseta", level="INFO") as logs:
+            self._frame([])
+            self._frame([_lectura("3876LBD", 0.7)])
+        self.assertIn("accion=sin_placa", logs.output[0])
+        self.assertIn("accion=esperando_confirmacion placa=3876LBD", logs.output[1])
+
+    def test_fallo_inesperado_tambien_es_error(self):
+        with self.assertLogs("peaje.caseta", level="ERROR"):
+            r = self._post_error(KeyError("placas"))
+        self.assertEqual((r.status_code, r.json()["accion"]), (502, "error"))
+
+    def test_timeout_real_se_traduce(self):
+        with override_settings(INFERENCE_URL="http://inferencia.invalid"), \
+                mock.patch("peaje.inferencia.requests.post", side_effect=requests.Timeout()):
+            r = self.client.post("/api/v1/pasos/frame", {"imagen": _jpeg(), "caseta_id": self.caseta.id},
+                                 HTTP_X_CSRFTOKEN=self.csrf)
+        self.assertEqual((r.status_code, r.json()["accion"]), (502, "error"))
+        self.assertIn("timeout", r.json()["mensaje"])
 
     def test_registra_con_categoria_detectada(self):
         self._frame([_lectura("3876LBD", 0.7, categoria="camion")])
@@ -204,14 +275,17 @@ class ApiFrameTests(TestCase):
         self.assertEqual((p["categoria"], p["categoria_texto"], p["ejes"], p["tarifa"], p["fuente_categoria"]),
                          ("camion", "Camión", None, "20.00", "inferencia"))
 
-    def test_inferencia_caida_502(self):
-        with mock.patch(INFERIR, side_effect=InferenciaNoDisponible("timeout")):
-            r = self.client.post("/api/v1/pasos/frame", {"imagen": _jpeg(), "caseta_id": self.caseta.id},
-                                 HTTP_X_CSRFTOKEN=self.csrf)
+    def test_inferencia_caida_error(self):
+        with self.assertLogs("peaje.caseta", level="INFO") as logs:
+            r = self._post_error(InferenciaNoDisponible("timeout"))
         self.assertEqual(r.status_code, 502)
+        d = r.json()
+        self.assertEqual((d["accion"], d["lectura"], d["paso"]), ("error", None, None))
+        self.assertIn("Sin conexión con la inferencia", d["mensaje"])
+        self.assertIn("accion=error", logs.output[0])
 
     def test_jwt_tambien_funciona(self):
-        with mock.patch(INFERIR, return_value=([_lectura("2451KTP", 0.95)], 50)):
+        with mock.patch(INFERIR, return_value=([_lectura("2451KTP", 0.95)], 50, SIN_VEHICULO)):
             r = self.client_class().post("/api/v1/pasos/frame", {"imagen": _jpeg(), "caseta_id": self.caseta.id},
                                          HTTP_AUTHORIZATION=f"Bearer {emitir_jwt(self.admin)}")
         self.assertEqual(r.json()["paso"]["estado"], "cobrado")
@@ -235,7 +309,7 @@ class ConsultaTests(TestCase):
         self.assertEqual(self.client.get("/api/v1/vehiculos/consulta").status_code, 400)
 
     def test_foto(self):
-        with mock.patch(INFERIR, return_value=([_lectura("2451KTP", 0.9)], 80)):
+        with mock.patch(INFERIR, return_value=([_lectura("2451KTP", 0.9)], 80, SIN_VEHICULO)):
             r = self.client.post("/api/v1/placas/leer", {"imagen": _jpeg()})
         self.assertEqual(r.json()["consulta"]["estado"], "habilitada")
 

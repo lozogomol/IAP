@@ -3,8 +3,8 @@
 Contrato: POST {INFERENCE_URL}/inferir, multipart con el campo `imagen` (JPEG) y la cabecera X-API-Token.
 Respuesta esperada (los campos que falten se toleran):
 
-    {"placas": [{"texto": "2451KTP", "confianza_lectura": 93.4, "confianza_deteccion": 88.0}],
-     "categoria": "auto", "confianza_categoria": 91.2, "ejes": null}
+    {"placas": [{"texto": "2451KTP", "confianza_lectura": 93.4, "confianza_deteccion": 88.0, "caja": [x1, y1, x2, y2]}],
+     "categoria": "auto", "confianza_categoria": 91.2, "caja_vehiculo": [x1, y1, x2, y2], "ejes": null}
 
 `categoria` la da M2 (tipo de vehículo); `ejes` llegará con M3. También se aceptan dentro de cada placa.
 Las confianzas pueden venir en 0..1 o en 0..100: aquí se normalizan a 0..1.
@@ -45,6 +45,28 @@ def _categoria_ejes(datos):
     return categoria, ejes
 
 
+def _caja(valor):
+    """[x1, y1, x2, y2] en píxeles de la imagen enviada, o None."""
+    if not isinstance(valor, (list, tuple)) or len(valor) != 4:
+        return None
+    try:
+        return [round(float(v)) for v in valor]
+    except (TypeError, ValueError):
+        return None
+
+
+def interpretar_vehiculo(datos):
+    """Datos del frame que no dependen de que la placa sea válida: tipo de vehículo (M2) y cajas detectadas."""
+    categoria, _ = _categoria_ejes(datos)
+    placas = [p for p in datos.get("placas") or [] if isinstance(p, dict)]
+    return {
+        "categoria": categoria,
+        "confianza_categoria": _confianza(datos.get("confianza_categoria")) if categoria else None,
+        "caja_vehiculo": _caja(datos.get("caja_vehiculo")),
+        "cajas_placas": [c for c in (_caja(p.get("caja")) for p in placas) if c],
+    }
+
+
 def interpretar(datos):
     """Respuesta cruda → lista de lecturas válidas (formato boliviano), de mayor a menor confianza.
 
@@ -66,13 +88,17 @@ def interpretar(datos):
             "confianza": _confianza(p.get("confianza_lectura", p.get("confianza"))),
             "categoria": categoria or categoria_global,
             "ejes": ejes if ejes is not None else ejes_global,
+            "caja": _caja(p.get("caja")),
         })
     lecturas.sort(key=lambda l: l["confianza"] or 0, reverse=True)
     return lecturas
 
 
 def inferir(imagen_bytes, nombre="frame.jpg"):
-    """Envía la imagen al endpoint. Devuelve (lecturas, ms_inferencia). Lanza InferenciaNoDisponible."""
+    """Envía la imagen al endpoint. Devuelve (lecturas, ms_inferencia, vehiculo). Lanza InferenciaNoDisponible.
+
+    `vehiculo`: ver interpretar_vehiculo (categoría M2, su confianza y las cajas para dibujar en el video).
+    """
     url = settings.INFERENCE_URL.rstrip("/")
     if not url:
         raise InferenciaNoDisponible("INFERENCE_URL no está configurado.")
@@ -86,8 +112,10 @@ def inferir(imagen_bytes, nombre="frame.jpg"):
         )
         r.raise_for_status()
         datos = r.json()
+    except requests.Timeout as e:
+        raise InferenciaNoDisponible(f"la inferencia no respondió en {TIMEOUT_S} s (timeout)") from e
     except (requests.RequestException, ValueError) as e:
         raise InferenciaNoDisponible(str(e)) from e
     if not isinstance(datos, dict):
         raise InferenciaNoDisponible("Respuesta de inferencia con formato inesperado.")
-    return interpretar(datos), round((time.perf_counter() - t0) * 1000)
+    return interpretar(datos), round((time.perf_counter() - t0) * 1000), interpretar_vehiculo(datos)

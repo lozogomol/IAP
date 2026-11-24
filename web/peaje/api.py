@@ -1,7 +1,9 @@
 """API v1. Autenticación: JWT (app móvil) o sesión web + CSRF (modo caseta y consulta en el navegador)."""
+import logging
 import time
 
 from django.conf import settings
+from django.utils import timezone
 from drf_spectacular.utils import OpenApiParameter, extend_schema, inline_serializer
 from rest_framework import serializers, status
 from rest_framework.decorators import api_view, parser_classes
@@ -11,6 +13,8 @@ from rest_framework.response import Response
 from . import cobro, panel
 from .inferencia import InferenciaNoDisponible, inferir
 from .models import Caseta, LecturaPlaca
+
+log = logging.getLogger("peaje.caseta")
 
 _respuesta = inline_serializer("RespuestaLibre", fields={"detalle": serializers.CharField(required=False)})
 
@@ -32,10 +36,16 @@ def _ms(t0):
 
 @extend_schema(
     summary="Procesa un frame de la cámara de una caseta",
-    description=("Lee la placa del frame, acumula lecturas de la caseta de los últimos 3 s y registra el paso "
-                 "con la placa más repetida (>= 2 lecturas iguales o 1 con confianza > 0.85). "
-                 "Anti-duplicado: la misma placa en la misma caseta no se cobra dos veces en 60 s.\n\n"
-                 "`resultado`: `sin_placa` | `leyendo` (sin consenso aún) | `registrado` | `duplicado`."),
+    description=(
+        "Lee la placa y el tipo de vehículo del frame y devuelve SIEMPRE el resultado de ese frame, aunque no "
+        "registre paso. Votación: registra con >= 2 lecturas iguales en 4 s o 1 lectura con confianza >= 0.80. "
+        "Anti-duplicado: la misma placa en la misma caseta no se cobra dos veces en 30 s. "
+        "Respuesta: `lectura` {placa, confianza, categoria, confianza_categoria, latencia_ms, caja_placa, "
+        "caja_vehiculo, cajas_placas} (cajas [x1, y1, x2, y2] en píxeles del frame enviado), "
+        "`accion`: `registrado` | `esperando_confirmacion` | `duplicado` | `sin_placa` | `error`, "
+        "`paso` (si existe), `mensaje` (texto corto en español), `votos`/`votos_necesarios` y "
+        "`segundos_desde_ultimo_paso` (si es duplicado). Si la inferencia falla responde 502 con `accion: error`."
+    ),
     request=inline_serializer("FrameEntrada", fields={
         "imagen": serializers.ImageField(), "caseta_id": serializers.IntegerField()}),
     responses={200: _respuesta, 400: _respuesta, 502: _respuesta},
@@ -52,33 +62,69 @@ def paso_frame(request):
     if error:
         return error
 
+    def responder(accion, mensaje, lectura, codigo=status.HTTP_200_OK, **extra):
+        ms = _ms(t0)
+        if lectura is not None:
+            lectura["latencia_ms"] = ms
+        log.info("frame caseta=%s accion=%s placa=%s categoria=%s %d ms%s", caseta.id, accion,
+                 (lectura or {}).get("placa") or "-", (lectura or {}).get("categoria") or "-", ms,
+                 f" · {mensaje}" if accion == "error" else "")
+        return Response({"accion": accion, "mensaje": mensaje, "lectura": lectura, "paso": None,
+                         "latencia_ms": ms, **extra}, status=codigo)
+
     try:
-        lecturas, ms_inferencia = inferir(imagen)
+        lecturas, ms_inferencia, vehiculo = inferir(imagen)
     except InferenciaNoDisponible as e:
-        return Response({"detalle": f"Inferencia no disponible: {e}", "latencia_ms": _ms(t0)},
-                        status=status.HTTP_502_BAD_GATEWAY)
+        return responder("error", f"Sin conexión con la inferencia: {e}", None,
+                         codigo=status.HTTP_502_BAD_GATEWAY, detalle=f"Inferencia no disponible: {e}")
+    except Exception:  # noqa: BLE001 - nunca fallar en silencio: el cliente muestra el error y sigue
+        log.exception("frame caseta=%s: fallo inesperado al interpretar la inferencia", caseta.id)
+        return responder("error", "Error al procesar la respuesta de la inferencia.", None,
+                         codigo=status.HTTP_502_BAD_GATEWAY, detalle="Respuesta de inferencia inválida.")
 
-    base = {"lecturas": lecturas, "latencia_inferencia_ms": ms_inferencia}
-    if not lecturas:
-        return Response({**base, "resultado": "sin_placa", "latencia_ms": _ms(t0)})
+    mejor = lecturas[0] if lecturas else None
+    lectura = {
+        "placa": mejor["placa"] if mejor else None,
+        "confianza": mejor["confianza"] if mejor else None,
+        "categoria": (mejor["categoria"] if mejor else "") or vehiculo.get("categoria") or "",
+        "confianza_categoria": vehiculo.get("confianza_categoria"),
+        "caja_placa": mejor.get("caja") if mejor else None,
+        "caja_vehiculo": vehiculo.get("caja_vehiculo"),
+        "cajas_placas": vehiculo.get("cajas_placas") or [],
+        "latencia_inferencia_ms": ms_inferencia,
+    }
+    if mejor is None:
+        return responder("sin_placa", "Buscando placa…", lectura)
 
-    mejor = lecturas[0]
     LecturaPlaca.objects.create(caseta=caseta, placa=mejor["placa"], confianza=mejor["confianza"],
                                 categoria=mejor["categoria"], ejes=mejor["ejes"])
     voto = cobro.votar(caseta)
     if voto is None:
-        return Response({**base, "resultado": "leyendo", "placa_candidata": mejor["placa"], "latencia_ms": _ms(t0)})
+        previo = cobro.paso_reciente(caseta, mejor["placa"])
+        if previo:
+            return _duplicado(responder, previo, lectura)
+        votos = cobro.votos_de(caseta, mejor["placa"])
+        return responder("esperando_confirmacion",
+                         f"Leyendo {mejor['placa']} (confirmando {votos}/{cobro.MIN_VOTOS})", lectura,
+                         votos=votos, votos_necesarios=cobro.MIN_VOTOS)
 
     paso, duplicado, info = cobro.registrar_paso(
         caseta.id, voto["placa"], usuario=request.user, confianza=voto["confianza"],
         texto_leido=mejor["texto_leido"] if mejor["placa"] == voto["placa"] else voto["placa"],
         categoria=voto["categoria"], ejes=voto["ejes"],
     )
-    if not duplicado:
-        panel.publicar_paso(paso, imagen)  # captura + evento en tiempo real (panel y alertas)
-        cobro.limpiar_lecturas_viejas()
-    return Response({**base, "resultado": "duplicado" if duplicado else "registrado", "votos": voto["votos"],
-                     "paso": cobro.paso_a_dict(paso, info), "latencia_ms": _ms(t0)})
+    if duplicado:
+        return _duplicado(responder, paso, lectura)
+    panel.publicar_paso(paso, imagen)  # captura + evento en tiempo real (panel y alertas)
+    cobro.limpiar_lecturas_viejas()
+    return responder("registrado", f"Registrado: {paso.get_estado_display().lower()}", lectura,
+                     paso=cobro.paso_a_dict(paso, info), votos=voto["votos"])
+
+
+def _duplicado(responder, paso, lectura):
+    segundos = max(0, round((timezone.now() - paso.created_at).total_seconds()))
+    return responder("duplicado", f"Ya registrado hace {segundos} s", lectura,
+                     paso=cobro.paso_a_dict(paso), segundos_desde_ultimo_paso=segundos)
 
 
 @extend_schema(
@@ -108,7 +154,7 @@ def placa_leer(request):
     if error:
         return error
     try:
-        lecturas, ms_inferencia = inferir(imagen, nombre="foto.jpg")
+        lecturas, ms_inferencia, _ = inferir(imagen, nombre="foto.jpg")
     except InferenciaNoDisponible as e:
         return Response({"detalle": f"Inferencia no disponible: {e}"}, status=status.HTTP_502_BAD_GATEWAY)
     datos = {"lecturas": lecturas, "latencia_inferencia_ms": ms_inferencia}

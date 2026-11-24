@@ -128,3 +128,15 @@ PUSHER_CLUSTER = os.environ.get("PUSHER_CLUSTER", "us2")
 # --- Capturas de los pasos: Cloudinary si CLOUDINARY_URL (cloudinary://key:secret@nube); si no, disco local. ---
 CLOUDINARY_URL = os.environ.get("CLOUDINARY_URL", "")
 MEDIA_ROOT = BASE_DIR / "media"
+
+# --- Log: cada frame del modo caseta queda en la consola del servidor con su acción ---
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {"simple": {"format": "%(asctime)s %(levelname)s %(name)s: %(message)s"}},
+    "handlers": {"consola": {"class": "logging.StreamHandler", "formatter": "simple"}},
+    # En los tests solo WARNING para no ensuciar la salida (assertLogs sigue funcionando).
+    "loggers": {"peaje": {"handlers": ["consola"],
+                          "level": "WARNING" if "test" in sys.argv else os.environ.get("IAP_LOG_NIVEL", "INFO"),
+                          "propagate": False}},
+}

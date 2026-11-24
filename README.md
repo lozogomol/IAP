@@ -27,7 +27,12 @@ La web llama a `POST {INFERENCE_URL}/inferir` (multipart, campo `imagen`, cabece
 categoría detectada con 2 ejes, y si no hay categoría, la del vehículo registrado. Métricas de M2 en `docs/metricas/m2/`.
 
 ## Modo caseta (cámara del celular)
-`/caseta` usa la cámara trasera y envía 2 frames/s a `POST /api/v1/pasos/frame` durante 60 s como máximo.
+`/caseta` usa la cámara trasera y envía 2 frames/s (1280 px, JPEG 0.8) a `POST /api/v1/pasos/frame`; se pausa sola
+a los 60 s y muestra un botón «Reanudar». Cada frame devuelve su resultado (`accion`: `registrado`,
+`esperando_confirmacion`, `duplicado`, `sin_placa` o `error`, con `mensaje` y `lectura`), que se ve en la franja
+«En vivo» con las cajas de la placa y del vehículo dibujadas sobre el video. Registra con 2 lecturas iguales en 4 s
+o 1 lectura con confianza ≥ 0.80; la misma placa en la misma caseta no se cobra dos veces en 30 s. Cada frame queda
+en el log del servidor (`peaje.caseta`, nivel con `IAP_LOG_NIVEL`).
 La cámara del navegador exige **HTTPS** (Render, o un túnel ngrok hacia el servidor local).
 
 ## Despliegue de la web (Render)

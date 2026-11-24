@@ -354,12 +354,42 @@ dialog::backdrop { background: rgba(10, 2, 4, .78); }
            background: rgba(10,2,4,.8); color: #fff; font-size: var(--t-xs); font-weight: 700; letter-spacing: .04em; }
 .en-vivo::before { content: ""; width: 9px; height: 9px; background: var(--c-destello); }
 .grabando .en-vivo { display: inline-flex; }
+.cajas-video { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.video-caja .indicacion { z-index: 1; background: rgba(0,0,0,.55); }
+.video-caja .indicacion .boton { margin-top: var(--e-1); }
+
+/* Franja "En vivo": resultado de cada frame (aunque no se registre paso) */
+.franja-vivo { margin: 0 calc(-1 * var(--e-3)); padding: 12px var(--e-3); background: var(--g-base); color: #fff;
+               border-left: 4px solid var(--c-neutro); }
+.franja-vivo .vivo-cab { display: flex; align-items: center; gap: var(--e-2); flex-wrap: wrap; }
+.franja-vivo .vivo-punto { width: 9px; height: 9px; background: #6b7280; flex: 0 0 auto; }
+.franja-vivo .vivo-titulo { font-size: var(--t-xs); font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+                            color: var(--g-texto-tenue); }
+.franja-vivo .vivo-estado { font-weight: 700; font-size: var(--t-sm); overflow-wrap: anywhere; }
+.franja-vivo .vivo-datos { display: grid; grid-template-columns: 1fr 1fr; gap: var(--e-3); margin-top: var(--e-2); }
+.franja-vivo .vivo-datos b { display: block; font-size: var(--t-xl); letter-spacing: .06em; font-variant-numeric: tabular-nums;
+                             overflow-wrap: anywhere; }
+.franja-vivo .vivo-datos span { font-size: var(--t-xs); color: var(--g-texto-tenue); }
+.franja-vivo .vivo-datos i { font-style: normal; font-variant-numeric: tabular-nums; }
+.franja-vivo.e-buscando { border-left-color: #9ca3af; }
+.franja-vivo.e-buscando .vivo-punto { background: #9ca3af; animation: parpadeo 1.2s steps(2) infinite; }
+.franja-vivo.e-leyendo { border-left-color: #f59e0b; }
+.franja-vivo.e-leyendo .vivo-punto, .franja-vivo.e-duplicado .vivo-punto { background: #f59e0b; }
+.franja-vivo.e-duplicado { border-left-color: #f59e0b; }
+.franja-vivo.e-registrado { border-left-color: #22c55e; }
+.franja-vivo.e-registrado .vivo-punto { background: #22c55e; }
+.franja-vivo.e-error { border-left-color: var(--c-destello); }
+.franja-vivo.e-error .vivo-punto { background: var(--c-destello); }
+.franja-vivo.e-error .vivo-estado { color: #fca5a5; }
+@keyframes parpadeo { to { opacity: .25; } }
+@media (prefers-reduced-motion: reduce) { .franja-vivo .vivo-punto { animation: none !important; } }
+#diagnostico { overflow-wrap: anywhere; }
 .barra-accion { position: fixed; left: 0; right: 0; bottom: 0; z-index: 25; background: #fff; border-top: 1px solid var(--c-borde);
                 padding: 12px var(--e-3) calc(12px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 6px; }
 .barra-accion .boton { width: 100%; }
 .con-barra-accion main.contenedor { padding-bottom: 140px; }
 .discreto { font-size: var(--t-xs); color: var(--c-tenue); font-variant-numeric: tabular-nums; text-align: center; }
-@media (min-width: 640px) { .video-caja { margin: 0; aspect-ratio: 16 / 10; } }
+@media (min-width: 640px) { .video-caja, .franja-vivo { margin: 0; } .video-caja { aspect-ratio: 16 / 10; } }
 @media (min-width: 1024px) {
   .barra-accion { position: static; padding: var(--e-3) 0 0; border: 0; flex-direction: row; align-items: center; gap: var(--e-3); background: transparent; }
   .barra-accion .boton { width: auto; min-width: 260px; }

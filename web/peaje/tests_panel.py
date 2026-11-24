@@ -116,7 +116,7 @@ class FrameCapturaTiempoRealTests(MediaTemporal):
         self.caseta = caseta_principal()
 
     def _frame(self, placa):
-        with mock.patch(INFERIR, return_value=([_lectura(placa, 0.95)], 50)):
+        with mock.patch(INFERIR, return_value=([_lectura(placa, 0.95)], 50, {})):
             return self.client.post("/api/v1/pasos/frame", {"imagen": _jpeg(), "caseta_id": self.caseta.id})
 
     def test_guarda_captura_local_y_la_sirve(self):
@@ -156,7 +156,7 @@ class FrameCapturaTiempoRealTests(MediaTemporal):
 
     @override_settings(**PUSHER)
     def test_evento_y_panel_con_categoria_detectada(self):
-        with mock.patch.object(tiempo_real, "en_segundo_plano", _sincrono),                 mock.patch("peaje.tiempo_real.requests.post") as post,                 mock.patch(INFERIR, return_value=([{**_lectura("2451KTP", 0.95), "categoria": "bus"}], 50)):
+        with mock.patch.object(tiempo_real, "en_segundo_plano", _sincrono),                 mock.patch("peaje.tiempo_real.requests.post") as post,                 mock.patch(INFERIR, return_value=([{**_lectura("2451KTP", 0.95), "categoria": "bus"}], 50, {})):
             self.client.post("/api/v1/pasos/frame", {"imagen": _jpeg(), "caseta_id": self.caseta.id})
         paso = json.loads(json.loads(post.call_args.kwargs["data"])["data"])["paso"]
         self.assertEqual((paso["categoria"], paso["categoria_texto"]), ("bus", "Bus"))
@@ -169,7 +169,7 @@ class FrameCapturaTiempoRealTests(MediaTemporal):
     def test_duplicado_no_emite(self):
         self._frame("3876LBD")
         with mock.patch.object(tiempo_real, "en_segundo_plano") as fondo:
-            self.assertEqual(self._frame("3876LBD").json()["resultado"], "duplicado")
+            self.assertEqual(self._frame("3876LBD").json()["accion"], "duplicado")
         fondo.assert_not_called()
 
     @override_settings(CLOUDINARY_URL="cloudinary://k123:s456@minube")

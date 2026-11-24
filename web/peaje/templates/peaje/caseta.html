@@ -14,18 +14,30 @@
   <section aria-label="Cámara">
     <div id="video-caja" class="video-caja">
       <video id="video" playsinline muted autoplay aria-label="Vista de la cámara"></video>
-      <div id="indicacion" class="indicacion">{% icono "camara" %}<span>Pulsa «Iniciar reconocimiento» para abrir la cámara trasera.</span></div>
+      <canvas id="cajas" class="cajas-video" aria-hidden="true"></canvas>
+      <div id="indicacion" class="indicacion">
+        {% icono "camara" %}<span id="indicacion-texto">Pulsa «Iniciar reconocimiento» para abrir la cámara trasera.</span>
+        <button id="btn-reanudar" class="boton primario" type="button" hidden>{% icono "play" %}<span>Reanudar</span></button>
+      </div>
       <div class="en-vivo">EN VIVO · <span id="restante">60</span> s</div>
+    </div>
+    <div id="vivo" class="franja-vivo e-inactivo" aria-live="polite" aria-label="Lectura en vivo">
+      <div class="vivo-cab"><span class="vivo-punto"></span><span class="vivo-titulo">En vivo</span>
+        <span id="vivo-estado" class="vivo-estado">Detenido</span></div>
+      <div class="vivo-datos">
+        <div><b id="vivo-placa">———</b><span>Placa leída <i id="vivo-conf-placa"></i></span></div>
+        <div><b id="vivo-tipo">–</b><span>Tipo de vehículo <i id="vivo-conf-tipo"></i></span></div>
+      </div>
     </div>
     <div class="barra-accion">
       <button id="btn" class="boton primario grande" type="button">{% icono "play" %}<span>Iniciar reconocimiento</span></button>
-      <span class="discreto">Peticiones: <span id="contador">0</span> · Latencia: <span id="latencia">–</span></span>
+      <span class="discreto" id="diagnostico">Latencia: <span id="latencia">–</span> · Frames enviados: <span id="contador">0</span><span id="ultimo-error-caja" hidden> · Último error: <span id="ultimo-error"></span></span></span>
     </div>
   </section>
-  <section class="tarjeta galaxia resultado" aria-live="polite" aria-label="Último resultado">
-    <div class="resultado-etiqueta">Último resultado</div>
+  <section class="tarjeta galaxia resultado" aria-live="polite" aria-label="Último paso registrado">
+    <div class="resultado-etiqueta">Último paso registrado</div>
     <div id="placa" class="placa-grande">———</div>
-    <span id="estado" class="etiqueta gris">Sin lecturas</span>
+    <span id="estado" class="etiqueta gris">Sin pasos</span>
     <div class="datos-par">
       <div class="ancho"><b id="categoria">–</b><span>Categoría detectada</span></div>
       <div><b id="monto">–</b><span>Monto cobrado</span></div>
@@ -37,16 +49,19 @@
 </div>
 <canvas id="lienzo" hidden></canvas>
 {{ caseta.id|json_script:"caseta-id" }}
+{{ categorias|json_script:"categorias" }}
 <template id="ico-play">{% icono "play" %}</template>
 <template id="ico-detener">{% icono "detener" %}</template>
 {% endblock %}
 {% block scripts %}
 <script>
 (function () {
-  var FPS = 2, CALIDAD = 0.7, ANCHO_MAX = 960, DURACION_S = 60;
+  // Frames de 1280 px para leer placas más lejanas; el servidor vota (2 lecturas en 4 s o 1 con conf. >= 0.80).
+  var FPS = 2, CALIDAD = 0.8, ANCHO_MAX = 1280, DURACION_S = 60, TIMEOUT_MS = 25000;
   var CASETA_ID = JSON.parse(document.getElementById("caseta-id").textContent);
+  var CATEGORIAS = JSON.parse(document.getElementById("categorias").textContent);
   var $ = function (id) { return document.getElementById(id); };
-  var video = $("video"), lienzo = $("lienzo"), btn = $("btn");
+  var video = $("video"), lienzo = $("lienzo"), cajas = $("cajas"), btn = $("btn");
   var flujo = null, temporizador = null, reloj = null, enCurso = false, enviadas = 0, inicio = 0, urlCaptura = null;
 
   function aviso(texto) { $("aviso-texto").textContent = texto; $("aviso").hidden = !texto; }
@@ -83,11 +98,71 @@
     btn.classList.toggle("peligro", activo);
   }
 
+  // --- Franja "En vivo" y diagnóstico -----------------------------------------------------------------
+  // tipo: inactivo | buscando | leyendo | registrado | duplicado | error
+  function estadoVivo(tipo, texto) {
+    $("vivo").className = "franja-vivo e-" + tipo;
+    $("vivo-estado").textContent = texto;
+  }
+
+  function pct(c) { return c == null ? "" : "(" + Math.round(c * 100) + " %)"; }
+
+  function mostrarLectura(lec) {
+    lec = lec || {};
+    $("vivo-placa").textContent = lec.placa || "———";
+    $("vivo-conf-placa").textContent = lec.placa ? pct(lec.confianza) : "";
+    $("vivo-tipo").textContent = lec.categoria ? (CATEGORIAS[lec.categoria] || lec.categoria) : "–";
+    $("vivo-conf-tipo").textContent = lec.categoria ? pct(lec.confianza_categoria) : "";
+  }
+
+  function registrarError(texto) {
+    $("ultimo-error").textContent = texto + " (" + new Date().toLocaleTimeString("es-BO") + ")";
+    $("ultimo-error-caja").hidden = false;
+  }
+
+  // --- Cajas sobre el video (coordenadas del frame enviado → pantalla, con object-fit: cover) ----------
+  function dibujarCajas(lec, anchoFrame, altoFrame) {
+    var w = cajas.clientWidth, h = cajas.clientHeight, ctx = cajas.getContext("2d");
+    var dpr = window.devicePixelRatio || 1;
+    if (cajas.width !== Math.round(w * dpr) || cajas.height !== Math.round(h * dpr)) {
+      cajas.width = Math.round(w * dpr); cajas.height = Math.round(h * dpr);
+    }
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    if (!lec || !anchoFrame || !altoFrame) return;
+    var escala = Math.max(w / anchoFrame, h / altoFrame);
+    var dx = (w - anchoFrame * escala) / 2, dy = (h - altoFrame * escala) / 2;
+    function caja(c, color, etiqueta, grosor) {
+      if (!c) return;
+      var x = dx + c[0] * escala, y = dy + c[1] * escala;
+      var bw = (c[2] - c[0]) * escala, bh = (c[3] - c[1]) * escala;
+      ctx.lineWidth = grosor; ctx.strokeStyle = color; ctx.strokeRect(x, y, bw, bh);
+      if (!etiqueta) return;
+      ctx.font = "700 13px Inter, system-ui, sans-serif";
+      var tw = ctx.measureText(etiqueta).width + 10, ty = y >= 20 ? y - 20 : y;
+      ctx.fillStyle = color; ctx.fillRect(x - grosor / 2, ty, tw, 20);
+      ctx.fillStyle = "#fff"; ctx.fillText(etiqueta, x + 5 - grosor / 2, ty + 14);
+    }
+    if (lec.caja_vehiculo) {
+      caja(lec.caja_vehiculo, "#dc2626",
+           lec.categoria ? (CATEGORIAS[lec.categoria] || lec.categoria) + " " + pct(lec.confianza_categoria) : "", 3);
+    }
+    (lec.cajas_placas || []).forEach(function (c) {
+      var esLeida = lec.caja_placa && c.join() === lec.caja_placa.join();
+      if (!esLeida) caja(c, "#f59e0b", "", 2);
+    });
+    if (lec.caja_placa) caja(lec.caja_placa, "#16a34a", lec.placa || "", 3);
+  }
+
+  function limpiarCajas() { dibujarCajas(null); }
+
+  // --- Cámara --------------------------------------------------------------------------------------
   function iniciar() {
     var problema = soporte();
     if (problema) { aviso(problema); return; }
     aviso("");
     btn.disabled = true;
+    $("btn-reanudar").hidden = true;
     navigator.mediaDevices.getUserMedia({
       video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } },
       audio: false
@@ -98,40 +173,46 @@
     }).then(function () {
       $("indicacion").hidden = true;
       $("video-caja").classList.add("grabando");
-      enviadas = 0; $("contador").textContent = "0";
       inicio = Date.now();
       temporizador = setInterval(capturar, 1000 / FPS);
       reloj = setInterval(tic, 250);
       tic();
       modoBoton(true);
+      estadoVivo("buscando", "Buscando placa…");
     }).catch(function (e) {
       detener();
       aviso(mensajeError(e));
     }).then(function () { btn.disabled = false; });
   }
 
-  function detener(motivo) {
+  function detener(motivo, reanudable) {
     clearInterval(temporizador); clearInterval(reloj); temporizador = reloj = null;
     if (flujo) { flujo.getTracks().forEach(function (t) { t.stop(); }); flujo = null; }
     video.srcObject = null;
     $("video-caja").classList.remove("grabando");
+    $("indicacion-texto").textContent = motivo || "Pulsa «Iniciar reconocimiento» para abrir la cámara trasera.";
+    $("btn-reanudar").hidden = !reanudable;
     $("indicacion").hidden = false;
     modoBoton(false);
-    if (motivo) $("lectura").textContent = motivo;
+    limpiarCajas();
+    estadoVivo("inactivo", reanudable ? "En pausa" : "Detenido");
   }
 
   function tic() {
     var restante = Math.max(0, DURACION_S - Math.floor((Date.now() - inicio) / 1000));
     $("restante").textContent = restante;
-    if (restante <= 0) detener("Detenido automáticamente tras " + DURACION_S + " s (" + enviadas + " peticiones).");
+    if (restante <= 0) {
+      detener("Reconocimiento en pausa: se detiene solo tras " + DURACION_S + " s para ahorrar batería y datos (" +
+              enviadas + " frames enviados).", true);
+    }
   }
 
   function capturar() {
     if (enCurso || !flujo || !video.videoWidth) return;  // no se envía si el anterior sigue en curso
     var escala = Math.min(1, ANCHO_MAX / video.videoWidth);
-    lienzo.width = Math.round(video.videoWidth * escala);
-    lienzo.height = Math.round(video.videoHeight * escala);
-    lienzo.getContext("2d").drawImage(video, 0, 0, lienzo.width, lienzo.height);
+    var ancho = Math.round(video.videoWidth * escala), alto = Math.round(video.videoHeight * escala);
+    lienzo.width = ancho; lienzo.height = alto;
+    lienzo.getContext("2d").drawImage(video, 0, 0, ancho, alto);
     enCurso = true;
     lienzo.toBlob(function (blob) {
       if (!blob || !flujo) { enCurso = false; return; }
@@ -140,14 +221,23 @@
       datos.append("caseta_id", CASETA_ID);
       var t0 = performance.now();
       enviadas++; $("contador").textContent = enviadas;
+      var corte = window.AbortController ? new AbortController() : null;
+      var plazo = setTimeout(function () { if (corte) corte.abort(); }, TIMEOUT_MS);
       fetch("/api/v1/pasos/frame", {
         method: "POST", credentials: "same-origin", body: datos,
-        headers: { "X-CSRFToken": csrfToken() }
+        headers: { "X-CSRFToken": csrfToken() }, signal: corte ? corte.signal : undefined
       })
         .then(function (r) { return r.json().catch(function () { return {}; }).then(function (d) { return [r, d]; }); })
-        .then(function (par) { mostrar(par[0], par[1], Math.round(performance.now() - t0), blob); })
-        .catch(function () { $("lectura").textContent = "Error de red al enviar la imagen."; })
-        .then(function () { enCurso = false; });
+        .then(function (par) { mostrar(par[0], par[1], Math.round(performance.now() - t0), blob, ancho, alto); })
+        .catch(function (e) {
+          var texto = e && e.name === "AbortError"
+            ? "Sin conexión con la inferencia: no respondió en " + (TIMEOUT_MS / 1000) + " s"
+            : "Sin conexión con el servidor (error de red)";
+          $("latencia").textContent = Math.round(performance.now() - t0) + " ms";
+          if (flujo) { estadoVivo("error", texto + ". Reintentando…"); limpiarCajas(); }
+          registrarError(texto);
+        })
+        .then(function () { clearTimeout(plazo); enCurso = false; });
     }, "image/jpeg", CALIDAD);
   }
 
@@ -159,19 +249,7 @@
     $("captura").innerHTML = ""; $("captura").appendChild(img);
   }
 
-  function mostrar(r, d, msCliente, blob) {
-    $("latencia").textContent = msCliente + " ms";
-    if (r.status === 401 || r.status === 403) {
-      detener(); aviso("Tu sesión expiró o no tienes permiso. Vuelve a iniciar sesión."); return;
-    }
-    if (!r.ok) { $("lectura").textContent = d.detalle || ("Error " + r.status); return; }
-    if (d.resultado === "sin_placa") { $("lectura").textContent = "Buscando placa…"; return; }
-    if (d.resultado === "leyendo") { $("lectura").textContent = "Leyendo " + d.placa_candidata + "… (confirmando)"; return; }
-    var p = d.paso;
-    if (d.resultado === "duplicado") {
-      $("lectura").textContent = p.placa + " ya se registró hace menos de 60 s (no se cobra de nuevo).";
-      return;
-    }
+  function mostrarPaso(p, blob) {
     $("placa").textContent = p.placa;
     $("estado").textContent = p.estado_texto;
     $("estado").className = "etiqueta e-" + p.estado;
@@ -184,8 +262,34 @@
       (p.fuente_categoria === "registro" ? " Categoría tomada del registro del vehículo." : "");
   }
 
+  function mostrar(r, d, msCliente, blob, ancho, alto) {
+    $("latencia").textContent = msCliente + " ms";
+    if (r.status === 401 || r.status === 403) {
+      detener(); aviso("Tu sesión expiró o no tienes permiso. Vuelve a iniciar sesión."); return;
+    }
+    if (!flujo) return;  // llegó después de detener
+    if (!r.ok || d.accion === "error" || !d.accion) {
+      var texto = d.mensaje || d.detalle || ("Error " + r.status + " del servidor");
+      if (r.status === 502 && !d.mensaje) texto = "Sin conexión con la inferencia";
+      estadoVivo("error", texto + ". Reintentando…");
+      registrarError(texto);
+      limpiarCajas();
+      return;
+    }
+    mostrarLectura(d.lectura);
+    dibujarCajas(d.lectura, ancho, alto);
+    var tipo = { sin_placa: "buscando", esperando_confirmacion: "leyendo",
+                 registrado: "registrado", duplicado: "duplicado" }[d.accion] || "buscando";
+    estadoVivo(tipo, d.mensaje);
+    if (d.accion === "registrado" && d.paso) mostrarPaso(d.paso, blob);
+  }
+
   btn.addEventListener("click", function () { flujo ? detener("Detenido.") : iniciar(); });
-  document.addEventListener("visibilitychange", function () { if (document.hidden && flujo) detener("Detenido al salir de la página."); });
+  $("btn-reanudar").addEventListener("click", iniciar);
+  document.addEventListener("visibilitychange", function () {
+    if (document.hidden && flujo) detener("Detenido al salir de la página.", true);
+  });
+  window.addEventListener("resize", limpiarCajas);
   var problema = soporte();
   if (problema) aviso(problema);
 })();

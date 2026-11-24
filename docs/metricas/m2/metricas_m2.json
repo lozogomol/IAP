@@ -1,0 +1,16 @@
+{
+  "origen": "YOLO11s-seg entrenado en RunPod (GPU), dataset Roboflow lozogomol/iap-vehiculos v1",
+  "conjunto": "test",
+  "mAP50_mascara": 0.8678,
+  "mAP50_95_mascara": 0.679,
+  "mAP50_caja": 0.8724,
+  "precision_mascara": 0.8426,
+  "recall_mascara": 0.8011,
+  "mAP50_95_por_clase": {
+    "auto": 0.7713,
+    "bus": 0.679,
+    "camion": 0.7086,
+    "minibus": 0.7955,
+    "moto": 0.4406
+  }
+}

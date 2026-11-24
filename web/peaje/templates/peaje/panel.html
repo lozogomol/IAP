@@ -75,7 +75,7 @@
     }
     var info = el("div");
     info.appendChild(el("div", "placa", p.placa));
-    info.appendChild(el("div", "hora", p.fecha + " · " + p.hora));
+    info.appendChild(el("div", "hora", (p.categoria_texto ? p.categoria_texto + " · " : "") + p.fecha + " · " + p.hora));
     li.appendChild(info);
     li.appendChild(el("span", "etiqueta e-" + p.estado, p.estado_texto));
     li.appendChild(el("span", "monto", "Bs " + p.monto));

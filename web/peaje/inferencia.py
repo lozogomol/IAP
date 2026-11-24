@@ -4,9 +4,9 @@ Contrato: POST {INFERENCE_URL}/inferir, multipart con el campo `imagen` (JPEG) y
 Respuesta esperada (los campos que falten se toleran):
 
     {"placas": [{"texto": "2451KTP", "confianza_lectura": 93.4, "confianza_deteccion": 88.0}],
-     "categoria": "auto", "ejes": 2}
+     "categoria": "auto", "confianza_categoria": 91.2, "ejes": null}
 
-`categoria` y `ejes` llegarán cuando existan M2/M3; también se aceptan dentro de cada placa.
+`categoria` la da M2 (tipo de vehículo); `ejes` llegará con M3. También se aceptan dentro de cada placa.
 Las confianzas pueden venir en 0..1 o en 0..100: aquí se normalizan a 0..1.
 """
 import time

@@ -373,6 +373,7 @@ dialog::backdrop { background: rgba(10, 2, 4, .78); }
 .datos-par div { background: rgba(10,2,4,.55); padding: 12px; }
 .datos-par b { display: block; font-size: var(--t-xl); font-variant-numeric: tabular-nums; }
 .datos-par span { font-size: var(--t-xs); text-transform: uppercase; letter-spacing: .06em; color: var(--g-texto-tenue); }
+.datos-par .ancho { grid-column: 1 / -1; }
 .captura-grande { aspect-ratio: 16 / 10; background: rgba(10,2,4,.5); border: 1px solid rgba(255,255,255,.25); display: flex;
                   flex-direction: column; gap: var(--e-2); align-items: center; justify-content: center; color: var(--g-texto-tenue);
                   font-size: var(--t-sm); overflow: hidden; text-align: center; padding: var(--e-2); }

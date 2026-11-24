@@ -1,5 +1,5 @@
 """Lógica del peaje: votación entre frames, registro del paso con cobro y consulta del estado de una placa."""
-from collections import defaultdict
+from collections import Counter, defaultdict
 from datetime import timedelta
 from decimal import Decimal
 
@@ -14,6 +14,7 @@ ANTIDUPLICADO = timedelta(seconds=60)
 MIN_VOTOS = 2
 CONFIANZA_SOLA = 0.85
 CERO = Decimal("0")
+EJES_POR_DEFECTO = 2  # mientras no exista M3 (conteo de ejes), la tarifa de la categoría detectada usa 2 ejes
 
 
 # --- Votación entre frames ----------------------------------------------------------------------
@@ -35,13 +36,16 @@ def votar(caseta, ahora=None):
     mejor = max(l.confianza or 0 for l in lecturas)
     if len(lecturas) < MIN_VOTOS and mejor <= CONFIANZA_SOLA:
         return None
-    con_categoria = next((l for l in lecturas if l.categoria and l.ejes), None)
+    # Categoría (M2): la más repetida entre las lecturas de la placa ganadora; ejes (M3) solo si llegaron.
+    votos_cat = Counter(l.categoria for l in lecturas if l.categoria)
+    categoria = votos_cat.most_common(1)[0][0] if votos_cat else ""
+    con_ejes = next((l for l in lecturas if l.categoria == categoria and l.ejes), None) if categoria else None
     return {
         "placa": placa,
         "votos": len(lecturas),
         "confianza": mejor or None,
-        "categoria": con_categoria.categoria if con_categoria else "",
-        "ejes": con_categoria.ejes if con_categoria else None,
+        "categoria": categoria,
+        "ejes": con_ejes.ejes if con_ejes else None,
     }
 
 
@@ -52,9 +56,10 @@ def limpiar_lecturas_viejas():
 # --- Registro del paso ---------------------------------------------------------------------------
 
 def _tarifa(categoria, ejes):
-    if not categoria or not ejes:
+    """Tarifa de la categoría con sus ejes; si los ejes no se conocen (sin M3), con EJES_POR_DEFECTO."""
+    if not categoria:
         return None
-    t = Tarifa.objects.filter(categoria=categoria, ejes=ejes).first()
+    t = Tarifa.objects.filter(categoria=categoria, ejes=ejes or EJES_POR_DEFECTO).first()
     return t.monto if t else None
 
 
@@ -67,8 +72,9 @@ def paso_reciente(caseta, placa, ahora=None):
 def registrar_paso(caseta_id, placa, usuario=None, confianza=None, texto_leido=None, categoria="", ejes=None):
     """Registra el paso y cobra. Devuelve (paso, duplicado, info).
 
-    Categoría y ejes: los de la inferencia (M2/M3) si llegaron y tienen tarifa; si no, los del vehículo
-    registrado; si no está registrado, "desconocida" y monto 0. Nunca se inventan valores.
+    Categoría: la detectada por M2 si llegó y tiene tarifa (con 2 ejes por defecto mientras no exista M3); si no,
+    la del vehículo registrado; si no está registrado ni se detectó, "desconocida" y monto 0. Los ejes que no
+    detectó M3 quedan en null en el paso: nunca se inventan.
     """
     with transaction.atomic():
         caseta = Caseta.objects.select_for_update().get(pk=caseta_id)  # serializa los pasos de la caseta
@@ -83,7 +89,7 @@ def registrar_paso(caseta_id, placa, usuario=None, confianza=None, texto_leido=N
             if vehiculo:
                 categoria, ejes, fuente = vehiculo.categoria, vehiculo.ejes, "registro"
                 monto_tarifa = _tarifa(categoria, ejes)
-            else:
+            elif not categoria:
                 categoria, ejes, fuente = "", None, "desconocida"
 
         monto, alerta, nota = CERO, None, ""
@@ -122,6 +128,7 @@ def paso_a_dict(paso, info=None):
         "estado": paso.estado,
         "estado_texto": paso.get_estado_display(),
         "categoria": paso.categoria_detectada or "desconocida",
+        "categoria_texto": paso.get_categoria_detectada_display() or "Desconocida",
         "ejes": paso.ejes_detectados,
         "tarifa": str(tarifa) if tarifa is not None else None,
         "monto_cobrado": str(paso.monto),

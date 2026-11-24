@@ -27,6 +27,7 @@
     <div id="placa" class="placa-grande">———</div>
     <span id="estado" class="etiqueta gris">Sin lecturas</span>
     <div class="datos-par">
+      <div class="ancho"><b id="categoria">–</b><span>Categoría detectada</span></div>
       <div><b id="monto">–</b><span>Monto cobrado</span></div>
       <div><b id="hora">–</b><span>Hora</span></div>
     </div>
@@ -174,11 +175,13 @@
     $("placa").textContent = p.placa;
     $("estado").textContent = p.estado_texto;
     $("estado").className = "etiqueta e-" + p.estado;
+    $("categoria").textContent = p.categoria_texto;
     $("monto").textContent = "Bs " + p.monto_cobrado;
     $("hora").textContent = new Date(p.created_at).toLocaleTimeString("es-BO",
       { hour: "2-digit", minute: "2-digit", second: "2-digit", timeZone: "America/La_Paz" });
     ponerCaptura(blob);
-    $("lectura").textContent = p.nota || "Paso registrado.";
+    $("lectura").textContent = (p.nota || "Paso registrado.") +
+      (p.fuente_categoria === "registro" ? " Categoría tomada del registro del vehículo." : "");
   }
 
   btn.addEventListener("click", function () { flujo ? detener("Detenido.") : iniciar(); });

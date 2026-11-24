@@ -5,5 +5,7 @@ python-multipart>=0.0.12
 onnxruntime>=1.19
 fast-plate-ocr>=1.0,<2
 numpy>=1.26
+# M2 (tipo de vehículo, YOLO11s-seg): misma versión con la que se entrenó m2_seg.pt (trae torch)
+ultralytics==8.4.218
 # En Colab ya viene opencv-python; en un servidor sin pantalla usa la versión headless:
 opencv-python-headless>=4.9

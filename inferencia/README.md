@@ -6,8 +6,10 @@ Endpoint único que servirá los 3 modelos (RunPod).
 
 - `GET /salud` — estado y modelos cargados (público).
 - `POST /inferir` — multipart `imagen` + cabecera `X-API-Token` →
-  `{"placas": [{"texto", "formato_bolivia", "confianza_deteccion", "confianza_lectura", "caja"}], "categoria": null, "ejes": null, "milisegundos"}`.
-  `?anotada=true` añade la imagen con las cajas. `categoria`/`ejes` quedan en `null` hasta M2/M3.
+  `{"placas": [{"texto", "formato_bolivia", "confianza_deteccion", "confianza_lectura", "caja"}], "categoria", "confianza_categoria", "caja_vehiculo", "ejes": null, "milisegundos"}`.
+  `categoria` (moto/auto/minibus/camion/bus) sale de M2 (`modelos/m2_seg.pt`, conf 0.35, imgsz 640): el vehículo que
+  contiene el centro de la placa o, sin placa, el de mayor área de máscara. `ejes` queda en `null` hasta M3.
+  `?anotada=true` añade la imagen con las cajas de la placa y la máscara y etiqueta del vehículo.
 - Variables: `IAP_TOKEN` (obligatoria; en Render es `INFERENCE_TOKEN`), `IAP_MAX_MB` (6), `IAP_UMBRAL` (0.4).
 - Local: `cd inferencia/servidor && pip install -r requirements.txt && IAP_TOKEN=... uvicorn app:app --port 8000`
 - Tests: `cd inferencia/servidor && python -m unittest -v test_app`

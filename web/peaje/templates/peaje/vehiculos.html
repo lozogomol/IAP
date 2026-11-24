@@ -53,6 +53,7 @@
           <th scope="col">Placa</th>
           <th scope="col" class="derecha">Saldo</th>
           <th scope="col">Estado</th>
+          <th scope="col">Categoría detectada</th>
           <th scope="col">Última captura</th>
           {% if es_admin %}<th scope="col">Acciones</th>{% endif %}
         </tr>
@@ -63,6 +64,7 @@
           <td data-label="Placa" class="placa">{{ v.placa }}</td>
           <td data-label="Saldo" class="derecha num">Bs {{ v.saldo }}</td>
           <td data-label="Estado">{% if v.activo %}<span class="etiqueta verde">Activo</span>{% else %}<span class="etiqueta gris">Inactivo</span>{% endif %}</td>
+          <td data-label="Categoría detectada">{% if v.ultima_categoria %}{{ v.ultima_categoria_texto }}{% else %}<span class="tenue">–</span>{% endif %}</td>
           <td data-label="Última captura">
             <div class="celda-captura">
               {% if v.ultima_captura %}
@@ -102,7 +104,7 @@
           {% endif %}
         </tr>
         {% empty %}
-        <tr class="fila-vacia"><td colspan="{% if es_admin %}5{% else %}4{% endif %}" class="vacio-celda">
+        <tr class="fila-vacia"><td colspan="{% if es_admin %}6{% else %}5{% endif %}" class="vacio-celda">
           {% if q %}{% include "peaje/_vacio.html" with icono="buscar" titulo="No hay vehículos con esa placa" texto="Revisa la placa o limpia la búsqueda." %}
           {% else %}{% include "peaje/_vacio.html" with icono="auto" titulo="Todavía no hay vehículos registrados" texto="Registra el primero con el formulario de arriba." %}{% endif %}
         </td></tr>

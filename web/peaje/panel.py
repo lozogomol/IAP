@@ -32,6 +32,8 @@ def resumen_paso(paso):
         "placa": paso.placa_normalizada,
         "estado": paso.estado,
         "estado_texto": paso.get_estado_display(),
+        "categoria": paso.categoria_detectada,
+        "categoria_texto": paso.get_categoria_detectada_display(),
         "monto": f"{paso.monto:.2f}",
         "hora": local.strftime("%H:%M:%S"),
         "fecha": local.strftime("%d/%m/%Y"),

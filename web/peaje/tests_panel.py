@@ -55,7 +55,8 @@ class CasetaPrincipalTests(TestCase):
         r = self.client.get("/caseta")
         self.assertContains(r, "<h1>Peaje IAP</h1>", html=False)
         self.assertContains(r, f'<script id="caseta-id" type="application/json">{caseta_principal().id}</script>')
-        self.assertNotContains(r, "Categoría")
+        self.assertContains(r, "Categoría detectada")
+        self.assertNotContains(r, "Ejes")
         self.assertNotContains(r, "Senkata")
 
 
@@ -89,7 +90,8 @@ class PanelTests(MediaTemporal):
         self.assertEqual(set(d), {"kpis", "grafica", "pasos"})
         self.assertLessEqual(len(d["pasos"]), 10)
         self.assertEqual(set(d["pasos"][0]),
-                         {"id", "placa", "estado", "estado_texto", "monto", "hora", "fecha", "imagen_url"})
+                         {"id", "placa", "estado", "estado_texto", "categoria", "categoria_texto", "monto", "hora", "fecha",
+                          "imagen_url"})
 
     def test_sin_pusher_no_carga_pusher_js(self):
         entrar(self.client, self.oper)
@@ -151,6 +153,17 @@ class FrameCapturaTiempoRealTests(MediaTemporal):
         esperada = hmac.new(b"secreto", f"POST\n/apps/123/events\n{consulta}".encode(), hashlib.sha256).hexdigest()
         self.assertEqual(firma, esperada)
         self.assertEqual(params["body_md5"], hashlib.md5(post.call_args.kwargs["data"].encode()).hexdigest())
+
+    @override_settings(**PUSHER)
+    def test_evento_y_panel_con_categoria_detectada(self):
+        with mock.patch.object(tiempo_real, "en_segundo_plano", _sincrono),                 mock.patch("peaje.tiempo_real.requests.post") as post,                 mock.patch(INFERIR, return_value=([{**_lectura("2451KTP", 0.95), "categoria": "bus"}], 50)):
+            self.client.post("/api/v1/pasos/frame", {"imagen": _jpeg(), "caseta_id": self.caseta.id})
+        paso = json.loads(json.loads(post.call_args.kwargs["data"])["data"])["paso"]
+        self.assertEqual((paso["categoria"], paso["categoria_texto"]), ("bus", "Bus"))
+        pasos = self.client.get("/panel/datos").json()["pasos"]
+        self.assertEqual(pasos[0]["categoria_texto"], "Bus")
+        r = self.client.get("/vehiculos?q=2451KTP")
+        self.assertContains(r, '<td data-label="Categoría detectada">Bus</td>', html=False)
 
     @override_settings(**PUSHER)
     def test_duplicado_no_emite(self):
@@ -219,7 +232,8 @@ class VehiculosTests(MediaTemporal):
         entrar(self.client, self.oper)
         r = self.client.get("/vehiculos")
         self.assertContains(r, "Sin pasos")  # hay vehículos sin ningún paso
-        self.assertNotContains(r, "Categoría")
+        self.assertContains(r, "Categoría detectada")
+        self.assertNotContains(r, "Ejes")
         self.assertNotContains(r, "Propietario")
         self.assertNotContains(r, "Recargar")  # solo admin
         r = self.client.get("/vehiculos", {"q": "2451-k"})
@@ -291,6 +305,16 @@ class EstadoPaginaTests(TestCase):
         for texto in ("Web", "Base de datos", "Inferencia", "Lectura de placas", "Tipo de vehículo", "Conteo de ejes",
                       "Activo", "Pendiente de entrenamiento", "Volver a comprobar"):
             self.assertContains(r, texto)
+
+    @override_settings(INFERENCE_URL="http://inferencia")
+    def test_tipo_de_vehiculo_activo(self):
+        salud = {"modelos": {"m1_placas": "cargado", "m2_segmentacion": "cargado", "m3_keypoints": "pendiente"}}
+        resp = mock.MagicMock()
+        resp.__enter__.return_value.read.return_value = json.dumps(salud).encode()
+        with mock.patch("peaje.views.urllib.request.urlopen", return_value=resp):
+            r = self.client.get("/estado")
+        self.assertRegex(r.content.decode(), r"<span>Tipo de vehículo</span><b class=\"texto-estado ok\">Activo</b>")
+        self.assertRegex(r.content.decode(), r"<span>Conteo de ejes</span><b[^>]*>Pendiente de entrenamiento</b>")
 
     @override_settings(INFERENCE_URL="http://inferencia")
     def test_inferencia_caida(self):

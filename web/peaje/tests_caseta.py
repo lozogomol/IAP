@@ -44,13 +44,19 @@ class InterpretarTests(TestCase):
         lec = interpretar({"placas": [{"texto": "987PLB"}], "categoria": "nave", "ejes": 40})
         self.assertEqual((lec[0]["categoria"], lec[0]["ejes"]), ("", None))
 
+    def test_respuesta_con_m2_sin_m3(self):
+        lec = interpretar({"placas": [{"texto": "987PLB", "confianza_lectura": 90}], "categoria": "minibus",
+                           "confianza_categoria": 88.1, "caja_vehiculo": [1, 2, 3, 4], "ejes": None})
+        self.assertEqual((lec[0]["categoria"], lec[0]["ejes"]), ("minibus", None))
+
 
 class VotacionTests(TestCase):
     def setUp(self):
         self.caseta = Caseta.objects.first()
 
-    def _leer(self, placa, confianza, hace_s=0):
-        lec = LecturaPlaca.objects.create(caseta=self.caseta, placa=placa, confianza=confianza)
+    def _leer(self, placa, confianza, hace_s=0, categoria="", ejes=None):
+        lec = LecturaPlaca.objects.create(caseta=self.caseta, placa=placa, confianza=confianza,
+                                          categoria=categoria, ejes=ejes)
         LecturaPlaca.objects.filter(pk=lec.pk).update(created_at=timezone.now() - timedelta(seconds=hace_s))
 
     def test_una_lectura_baja_no_basta(self):
@@ -67,6 +73,14 @@ class VotacionTests(TestCase):
         self._leer("2451KTP", 0.7)
         v = cobro.votar(self.caseta)
         self.assertEqual((v["placa"], v["votos"]), ("2451KTP", 2))
+
+    def test_categoria_mas_repetida_sin_ejes(self):
+        self._leer("2451KTP", 0.7, categoria="auto")
+        self._leer("2451KTP", 0.7, categoria="minibus")
+        self._leer("2451KTP", 0.7, categoria="minibus")
+        self._leer("2451KTP", 0.7)
+        v = cobro.votar(self.caseta)
+        self.assertEqual((v["categoria"], v["ejes"]), ("minibus", None))
 
     def test_lecturas_viejas_no_cuentan(self):
         self._leer("2451KTP", 0.7, hace_s=10)
@@ -95,6 +109,22 @@ class RegistrarPasoTests(TestCase):
     def test_usa_categoria_de_inferencia_si_llega(self):
         paso, _, info = cobro.registrar_paso(self.caseta.id, "3876LBD", categoria="camion", ejes=3)
         self.assertEqual((paso.monto, info["fuente_categoria"]), (Decimal("30"), "inferencia"))
+
+    def test_categoria_detectada_sin_ejes_usa_2_ejes(self):
+        # 3876LBD está registrado como auto; M2 detecta minibus y M3 aún no existe → tarifa minibus/2 ejes
+        paso, _, info = cobro.registrar_paso(self.caseta.id, "3876LBD", categoria="minibus")
+        self.assertEqual((paso.estado, paso.monto, paso.categoria_detectada, paso.ejes_detectados),
+                         ("cobrado", Decimal("15"), "minibus", None))
+        self.assertEqual(info["fuente_categoria"], "inferencia")
+        d = cobro.paso_a_dict(paso, info)
+        self.assertEqual((d["categoria"], d["categoria_texto"], d["tarifa"], d["ejes"]),
+                         ("minibus", "Minibús", "15.00", None))
+        self.assertEqual(cobro.paso_a_dict(paso)["tarifa"], "15.00")  # también sin info
+
+    def test_no_registrada_conserva_categoria_detectada(self):
+        paso, _, info = cobro.registrar_paso(self.caseta.id, "6999ZZZ", categoria="moto")
+        self.assertEqual((paso.estado, paso.monto, paso.categoria_detectada), ("no_registrada", Decimal("0"), "moto"))
+        self.assertEqual(info["fuente_categoria"], "inferencia")
 
     def test_saldo_insuficiente(self):
         paso, _, _ = cobro.registrar_paso(self.caseta.id, "1987FHK")
@@ -167,6 +197,12 @@ class ApiFrameTests(TestCase):
         self.assertEqual(self._frame([_lectura("3876LBD", 0.9)]).json()["resultado"], "duplicado")
         self.assertEqual(Paso.objects.filter(placa_normalizada="3876LBD", caseta=self.caseta,
                                              usuario=self.admin).count(), 1)
+
+    def test_registra_con_categoria_detectada(self):
+        self._frame([_lectura("3876LBD", 0.7, categoria="camion")])
+        p = self._frame([_lectura("3876LBD", 0.75, categoria="camion")]).json()["paso"]
+        self.assertEqual((p["categoria"], p["categoria_texto"], p["ejes"], p["tarifa"], p["fuente_categoria"]),
+                         ("camion", "Camión", None, "20.00", "inferencia"))
 
     def test_inferencia_caida_502(self):
         with mock.patch(INFERIR, side_effect=InferenciaNoDisponible("timeout")):

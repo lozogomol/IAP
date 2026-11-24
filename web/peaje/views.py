@@ -22,7 +22,7 @@ from .auth import (TokenGoogleInvalido, cerrar_sesion, datos_token_google, inici
 from . import panel as panel_mod
 from . import tiempo_real
 from .forms import VehiculoForm
-from .models import Alerta, Paso, Usuario, Vehiculo, caseta_principal
+from .models import CATEGORIAS, Alerta, Paso, Usuario, Vehiculo, caseta_principal
 from .placas import normalizar_placa
 
 log = logging.getLogger(__name__)
@@ -165,9 +165,14 @@ def vehiculos(request):
     lista = Vehiculo.objects.annotate(
         ultimo_paso=Subquery(ultimos.values("created_at")[:1]),
         ultima_captura=Subquery(ultimos.values("imagen_url")[:1]),
+        ultima_categoria=Subquery(ultimos.values("categoria_detectada")[:1]),
     )
     if q:
         lista = lista.filter(placa__icontains=q)
+    nombres = dict(CATEGORIAS)
+    lista = list(lista)
+    for v in lista:
+        v.ultima_categoria_texto = nombres.get(v.ultima_categoria, "")
     return render(request, "peaje/vehiculos.html", {
         "vehiculos": lista, "form": form, "q": q,
         "es_admin": request.session.get("rol") == "admin",
@@ -301,7 +306,7 @@ def _estado_bd():
 MODELOS = [("m1_placas", "Lectura de placas"), ("m2_segmentacion", "Tipo de vehículo"),
            ("m3_keypoints", "Conteo de ejes")]
 ESTADOS_MODELO = {"cargado": ("Activo", "ok"), "pendiente": ("Pendiente de entrenamiento", "aviso"),
-                  "cargando": ("Cargando", "aviso")}
+                  "cargando": ("Cargando", "aviso"), "error": ("Error al cargar", "mal")}
 
 
 def _estado_inferencia():

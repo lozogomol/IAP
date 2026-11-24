@@ -17,6 +17,8 @@ web/media/
 
 # Modelos y datos pesados
 *.pt
+# ...excepto los modelos de inferencia del repo (el servidor de Colab/RunPod los clona desde GitHub)
+!inferencia/modelos/*.pt
 datasets/
 runs/
 

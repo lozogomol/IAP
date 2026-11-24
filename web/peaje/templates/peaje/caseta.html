@@ -25,13 +25,13 @@
       <div class="vivo-cab"><span class="vivo-punto"></span><span class="vivo-titulo">En vivo</span>
         <span id="vivo-estado" class="vivo-estado">Detenido</span></div>
       <div class="vivo-datos">
-        <div><b id="vivo-placa">———</b><span>Placa leída <i id="vivo-conf-placa"></i></span></div>
-        <div><b id="vivo-tipo">–</b><span>Tipo de vehículo <i id="vivo-conf-tipo"></i></span></div>
+        <div><b id="vivo-placa">———</b><span>Placa leída</span></div>
+        <div><b id="vivo-tipo">–</b><span>Tipo de vehículo apuntado</span></div>
       </div>
     </div>
     <div class="barra-accion">
       <button id="btn" class="boton primario grande" type="button">{% icono "play" %}<span>Iniciar reconocimiento</span></button>
-      <span class="discreto" id="diagnostico">Latencia: <span id="latencia">–</span> · Frames enviados: <span id="contador">0</span><span id="ultimo-error-caja" hidden> · Último error: <span id="ultimo-error"></span></span></span>
+      <span class="discreto" id="diagnostico">Latencia: <span id="latencia">–</span> · Frames enviados: <span id="contador">0</span> · Confianza placa: <span id="conf-placa">–</span> · tipo: <span id="conf-tipo">–</span><span id="ultimo-error-caja" hidden> · Último error: <span id="ultimo-error"></span></span></span>
     </div>
   </section>
   <section class="tarjeta galaxia resultado" aria-live="polite" aria-label="Último paso registrado">
@@ -49,7 +49,6 @@
 </div>
 <canvas id="lienzo" hidden></canvas>
 {{ caseta.id|json_script:"caseta-id" }}
-{{ categorias|json_script:"categorias" }}
 <template id="ico-play">{% icono "play" %}</template>
 <template id="ico-detener">{% icono "detener" %}</template>
 {% endblock %}
@@ -59,7 +58,6 @@
   // Frames de 1280 px para leer placas más lejanas; el servidor vota (2 lecturas en 4 s o 1 con conf. >= 0.80).
   var FPS = 2, CALIDAD = 0.8, ANCHO_MAX = 1280, DURACION_S = 60, TIMEOUT_MS = 25000;
   var CASETA_ID = JSON.parse(document.getElementById("caseta-id").textContent);
-  var CATEGORIAS = JSON.parse(document.getElementById("categorias").textContent);
   var $ = function (id) { return document.getElementById(id); };
   var video = $("video"), lienzo = $("lienzo"), cajas = $("cajas"), btn = $("btn");
   var flujo = null, temporizador = null, reloj = null, enCurso = false, enviadas = 0, inicio = 0, urlCaptura = null;
@@ -105,14 +103,16 @@
     $("vivo-estado").textContent = texto;
   }
 
-  function pct(c) { return c == null ? "" : "(" + Math.round(c * 100) + " %)"; }
+  function pct(c) { return c == null ? "–" : Math.round(c * 100) + " %"; }
 
+  // El tipo es la clase del vehículo apuntado (el de la placa leída, o el más grande y centrado), tal cual
+  // modelo.names (auto, bus, camion, minibus, moto). El porcentaje va solo en el diagnóstico.
   function mostrarLectura(lec) {
     lec = lec || {};
     $("vivo-placa").textContent = lec.placa || "———";
-    $("vivo-conf-placa").textContent = lec.placa ? pct(lec.confianza) : "";
-    $("vivo-tipo").textContent = lec.categoria ? (CATEGORIAS[lec.categoria] || lec.categoria) : "–";
-    $("vivo-conf-tipo").textContent = lec.categoria ? pct(lec.confianza_categoria) : "";
+    $("vivo-tipo").textContent = lec.categoria || "–";
+    $("conf-placa").textContent = lec.placa ? pct(lec.confianza) : "–";
+    $("conf-tipo").textContent = lec.categoria ? pct(lec.confianza_categoria) : "–";
   }
 
   function registrarError(texto) {
@@ -144,8 +144,7 @@
       ctx.fillStyle = "#fff"; ctx.fillText(etiqueta, x + 5 - grosor / 2, ty + 14);
     }
     if (lec.caja_vehiculo) {
-      caja(lec.caja_vehiculo, "#dc2626",
-           lec.categoria ? (CATEGORIAS[lec.categoria] || lec.categoria) + " " + pct(lec.confianza_categoria) : "", 3);
+      caja(lec.caja_vehiculo, "#dc2626", lec.categoria || "", 3);
     }
     (lec.cajas_placas || []).forEach(function (c) {
       var esLeida = lec.caja_placa && c.join() === lec.caja_placa.join();

@@ -42,7 +42,8 @@ def _ms(t0):
         "Anti-duplicado: la misma placa en la misma caseta no se cobra dos veces en 30 s. "
         "Respuesta: `lectura` {placa, confianza, categoria, confianza_categoria, latencia_ms, caja_placa, "
         "caja_vehiculo, cajas_placas} (cajas [x1, y1, x2, y2] en píxeles del frame enviado), "
-        "`accion`: `registrado` | `esperando_confirmacion` | `duplicado` | `sin_placa` | `error`, "
+        "`lectura.categoria` es la clase (modelo.names) del vehículo que contiene la placa leída, o del más grande y "
+        "centrado si no hay placa. `accion`: `registrado` | `esperando_confirmacion` | `duplicado` | `sin_placa` | `error`, "
         "`paso` (si existe), `mensaje` (texto corto en español), `votos`/`votos_necesarios` y "
         "`segundos_desde_ultimo_paso` (si es duplicado). Si la inferencia falla responde 502 con `accion: error`."
     ),
@@ -83,13 +84,16 @@ def paso_frame(request):
                          codigo=status.HTTP_502_BAD_GATEWAY, detalle="Respuesta de inferencia inválida.")
 
     mejor = lecturas[0] if lecturas else None
+    # Primero el vehículo apuntado (el que contiene la placa leída; sin placa, el elegido por el servidor) y
+    # después SU clase, tal cual modelo.names. Nunca la detección con más porcentaje de la imagen.
+    apuntado = mejor if mejor else vehiculo
     lectura = {
         "placa": mejor["placa"] if mejor else None,
         "confianza": mejor["confianza"] if mejor else None,
-        "categoria": (mejor["categoria"] if mejor else "") or vehiculo.get("categoria") or "",
-        "confianza_categoria": vehiculo.get("confianza_categoria"),
+        "categoria": apuntado.get("clase") or "",
+        "confianza_categoria": apuntado.get("confianza_clase"),
         "caja_placa": mejor.get("caja") if mejor else None,
-        "caja_vehiculo": vehiculo.get("caja_vehiculo"),
+        "caja_vehiculo": apuntado.get("caja_vehiculo"),
         "cajas_placas": vehiculo.get("cajas_placas") or [],
         "latencia_inferencia_ms": ms_inferencia,
     }

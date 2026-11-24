@@ -231,7 +231,7 @@ def alerta_atender(request, pk):
 
 @login_requerido
 def caseta(request):
-    return render(request, "peaje/caseta.html", {"caseta": caseta_principal(), "categorias": dict(CATEGORIAS)})
+    return render(request, "peaje/caseta.html", {"caseta": caseta_principal()})
 
 
 @login_requerido

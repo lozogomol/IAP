@@ -4,13 +4,20 @@ Contrato que consume la web Django (web/peaje/inferencia.py):
 
     GET  /salud     → estado del servidor y de los modelos (público, sin datos sensibles)
     POST /inferir   → multipart con el campo `imagen` (JPEG/PNG) y la cabecera X-API-Token
-                      {"placas": [{"texto", "formato_bolivia", "confianza_deteccion", "confianza_lectura", "caja"}],
+                      {"placas": [{"texto", "formato_bolivia", "confianza_deteccion", "confianza_lectura", "caja",
+                                   "categoria", "confianza_categoria", "caja_vehiculo"}],
                        "categoria": "auto", "confianza_categoria": 91.2, "caja_vehiculo": [x1, y1, x2, y2],
                        "ejes": null, "milisegundos": 42}
 
-M2 (YOLO11s-seg, inferencia/modelos/m2_seg.pt) elige el vehículo principal: el que contiene el centro de la placa
-leída por M1; si no hay placa (o ningún vehículo la contiene), el de mayor área de máscara. Sin vehículos (o sin el
-.pt) `categoria`, `confianza_categoria` y `caja_vehiculo` van en null. `ejes` va en null hasta que exista M3
+M2 (YOLO11s-seg, inferencia/modelos/m2_seg.pt). Primero se elige el VEHÍCULO APUNTADO y después se informa SU
+clase (nunca la detección de mayor porcentaje de toda la imagen):
+  - cada placa lleva el vehículo que la contiene (centro de la placa dentro de su caja; si varios, el que lo tiene
+    dentro de la máscara y luego el de mayor área); si ninguno la contiene, el más grande y centrado;
+  - el vehículo global es el de la placa leída (la de formato boliviano con mayor confianza de lectura; si no hay
+    ninguna válida, la de mayor confianza); sin placas, el más grande y centrado en la imagen.
+La clase es exactamente el nombre del modelo (`modelo.names`, como se etiquetó en Roboflow: auto, bus, camion,
+minibus, moto), sin lista fija ni reordenamiento. Sin vehículos (o sin el .pt) `categoria`, `confianza_categoria` y
+`caja_vehiculo` van en null. `ejes` va en null hasta que exista M3
 (keypoints): nunca se inventa. Las confianzas van en 0..100 (la web las normaliza).
 
 Variables de entorno:
@@ -46,11 +53,9 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 
 MAX_BYTES = int(float(os.environ.get("IAP_MAX_MB", "6")) * 1024 * 1024)
 UMBRAL = float(os.environ.get("IAP_UMBRAL", "0.4"))
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 M2_CONF = 0.35
 M2_IMGSZ = 640
-# Nombres de clase del modelo → categorías de la web (models.CATEGORIAS)
-CATEGORIAS_M2 = {"moto": "moto", "auto": "auto", "minibus": "minibus", "camion": "camion", "bus": "bus"}
 
 _lector = None
 _m2 = None
@@ -161,7 +166,7 @@ def leer_placas(imagen):
 
 def detectar_vehiculos(imagen):
     """M2 → lista de {"categoria", "confianza", "caja", "area", "mascara"}; la máscara (bool) y la caja están en
-    coordenadas de la imagen original (retina_masks)."""
+    coordenadas de la imagen original (retina_masks). `categoria` es el nombre de la clase en `modelo.names`."""
     if _m2 is None:
         return []
     with _lock_m2:
@@ -175,9 +180,7 @@ def detectar_vehiculos(imagen):
     mascaras = (r.masks.data.cpu().numpy() > 0.5) if r.masks is not None else [None] * len(cajas)
     vehiculos = []
     for i, (caja, clase, conf) in enumerate(zip(cajas, clases, confs)):
-        categoria = CATEGORIAS_M2.get(r.names[clase])
-        if categoria is None:
-            continue
+        categoria = str(r.names[int(clase)])  # nombre tal cual se etiquetó en Roboflow
         x1, y1, x2, y2 = (int(round(float(v))) for v in caja)
         vehiculos.append({
             "categoria": categoria,
@@ -202,19 +205,54 @@ def _mascara_contiene(vehiculo, punto):
     return 0 <= y < m.shape[0] and 0 <= x < m.shape[1] and bool(m[y, x])
 
 
-def elegir_vehiculo(vehiculos, placas):
-    """Vehículo principal: el que contiene el centro de la placa mejor leída por M1; si no hay placa o ningún
-    vehículo la contiene, el de mayor área de máscara. Si varios contienen el centro, gana el que lo tiene dentro
-    de la máscara y, a igualdad, el de mayor área."""
+def _centralidad(vehiculo, forma):
+    """1 en el centro de la imagen, ~0 en una esquina (distancia del centro de la caja al centro de la imagen)."""
+    if not forma:
+        return 1.0
+    alto, ancho = forma[:2]
+    x1, y1, x2, y2 = vehiculo["caja"]
+    dx = ((x1 + x2) / 2 - ancho / 2) / (ancho / 2)
+    dy = ((y1 + y2) / 2 - alto / 2) / (alto / 2)
+    return max(0.05, 1 - (dx * dx + dy * dy) ** 0.5 / 2 ** 0.5)
+
+
+def mas_grande_y_centrado(vehiculos, forma=None):
+    """Sin placa de referencia: el vehículo con mayor área ponderada por cercanía al centro de la imagen."""
+    return max(vehiculos, key=lambda v: v["area"] * _centralidad(v, forma)) if vehiculos else None
+
+
+def placa_leida(placas):
+    """La placa que la web toma como lectura: formato boliviano primero, luego mayor confianza de lectura."""
+    if not placas:
+        return None
+    return max(placas, key=lambda p: (bool(p.get("formato_bolivia")), p.get("confianza_lectura") or 0))
+
+
+def vehiculo_de_placa(vehiculos, placa, forma=None):
+    """El vehículo que contiene el centro de la placa; si varios, el que lo tiene dentro de la máscara y, a
+    igualdad, el de mayor área. Si ninguno la contiene, el más grande y centrado."""
     if not vehiculos:
         return None
-    if placas:
-        x1, y1, x2, y2 = placas[0]["caja"]
-        centro = ((x1 + x2) / 2, (y1 + y2) / 2)
-        candidatos = [v for v in vehiculos if _caja_contiene(v, centro)]
-        if candidatos:
-            return max(candidatos, key=lambda v: (_mascara_contiene(v, centro), v["area"]))
-    return max(vehiculos, key=lambda v: v["area"])
+    x1, y1, x2, y2 = placa["caja"]
+    centro = ((x1 + x2) / 2, (y1 + y2) / 2)
+    candidatos = [v for v in vehiculos if _caja_contiene(v, centro)]
+    if candidatos:
+        return max(candidatos, key=lambda v: (_mascara_contiene(v, centro), v["area"]))
+    return mas_grande_y_centrado(vehiculos, forma)
+
+
+def elegir_vehiculo(vehiculos, placas, forma=None):
+    """Vehículo apuntado: el de la placa leída (ver placa_leida); sin placas, el más grande y centrado."""
+    if not vehiculos:
+        return None
+    placa = placa_leida(placas)
+    return vehiculo_de_placa(vehiculos, placa, forma) if placa else mas_grande_y_centrado(vehiculos, forma)
+
+
+def _datos_vehiculo(v):
+    return {"categoria": v["categoria"] if v else None,
+            "confianza_categoria": round(v["confianza"] * 100, 1) if v else None,
+            "caja_vehiculo": v["caja"] if v else None}
 
 
 def _anotar(imagen, placas, vehiculo=None):
@@ -268,7 +306,11 @@ def inferir(imagen: UploadFile = File(...),
     img = _decodificar(imagen.file.read(MAX_BYTES + 1))
     try:
         placas = leer_placas(img)
-        vehiculo = elegir_vehiculo(detectar_vehiculos(img), placas)
+        vehiculos = detectar_vehiculos(img)
+        vehiculo = elegir_vehiculo(vehiculos, placas, img.shape)
+        if vehiculos:  # cada placa con SU vehículo: la web muestra el de la placa que realmente lee
+            for p in placas:
+                p.update(_datos_vehiculo(vehiculo_de_placa(vehiculos, p, img.shape)))
     except Exception:  # noqa: BLE001
         _contador["errores"] += 1
         log.exception("Fallo en la inferencia")
@@ -279,9 +321,7 @@ def inferir(imagen: UploadFile = File(...),
              [p["texto"] for p in placas] or "-", vehiculo["categoria"] if vehiculo else "-", ms)
     respuesta = {
         "placas": placas,
-        "categoria": vehiculo["categoria"] if vehiculo else None,
-        "confianza_categoria": round(vehiculo["confianza"] * 100, 1) if vehiculo else None,
-        "caja_vehiculo": vehiculo["caja"] if vehiculo else None,
+        **_datos_vehiculo(vehiculo),
         "ejes": None,  # M3 pendiente: nunca se inventa
         "milisegundos": ms,
     }

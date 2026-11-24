@@ -3,10 +3,14 @@
 Contrato: POST {INFERENCE_URL}/inferir, multipart con el campo `imagen` (JPEG) y la cabecera X-API-Token.
 Respuesta esperada (los campos que falten se toleran):
 
-    {"placas": [{"texto": "2451KTP", "confianza_lectura": 93.4, "confianza_deteccion": 88.0, "caja": [x1, y1, x2, y2]}],
+    {"placas": [{"texto": "2451KTP", "confianza_lectura": 93.4, "confianza_deteccion": 88.0, "caja": [x1, y1, x2, y2],
+                 "categoria": "auto", "confianza_categoria": 91.2, "caja_vehiculo": [x1, y1, x2, y2]}],
      "categoria": "auto", "confianza_categoria": 91.2, "caja_vehiculo": [x1, y1, x2, y2], "ejes": null}
 
-`categoria` la da M2 (tipo de vehículo); `ejes` llegará con M3. También se aceptan dentro de cada placa.
+`categoria` la da M2: es la clase del VEHÍCULO APUNTADO, tal cual `modelo.names` (auto, bus, camion, minibus, moto).
+Cada placa trae el vehículo que la contiene, así que la clase que se muestra es la del vehículo de la placa leída;
+el bloque global (vehículo de la placa leída por el servidor, o el más grande y centrado) solo se usa si la placa no
+trae el suyo o no hay placa válida. `ejes` llegará con M3.
 Las confianzas pueden venir en 0..1 o en 0..100: aquí se normalizan a 0..1.
 """
 import time
@@ -55,24 +59,32 @@ def _caja(valor):
         return None
 
 
-def interpretar_vehiculo(datos):
-    """Datos del frame que no dependen de que la placa sea válida: tipo de vehículo (M2) y cajas detectadas."""
-    categoria, _ = _categoria_ejes(datos)
-    placas = [p for p in datos.get("placas") or [] if isinstance(p, dict)]
+def _vehiculo(datos):
+    """Vehículo de un bloque (placa o global): clase tal cual la da el modelo, su confianza y su caja."""
+    clase = datos.get("categoria")
+    clase = clase.strip() if isinstance(clase, str) else ""
     return {
-        "categoria": categoria,
-        "confianza_categoria": _confianza(datos.get("confianza_categoria")) if categoria else None,
+        "clase": clase,
+        "confianza_clase": _confianza(datos.get("confianza_categoria")) if clase else None,
         "caja_vehiculo": _caja(datos.get("caja_vehiculo")),
-        "cajas_placas": [c for c in (_caja(p.get("caja")) for p in placas) if c],
     }
+
+
+def interpretar_vehiculo(datos):
+    """Datos del frame que no dependen de que la placa sea válida: vehículo apuntado (M2) y cajas de placas."""
+    placas = [p for p in datos.get("placas") or [] if isinstance(p, dict)]
+    return {**_vehiculo(datos), "cajas_placas": [c for c in (_caja(p.get("caja")) for p in placas) if c]}
 
 
 def interpretar(datos):
     """Respuesta cruda → lista de lecturas válidas (formato boliviano), de mayor a menor confianza.
 
-    Cada lectura: {"placa", "texto_leido", "confianza", "categoria", "ejes"}.
+    Cada lectura: {"placa", "texto_leido", "confianza", "categoria", "ejes", "caja", "clase", "confianza_clase",
+    "caja_vehiculo"}. `clase` es la del vehículo que contiene ESA placa (nombre del modelo, para mostrar);
+    `categoria` es esa misma clase si tiene tarifa en el peaje (models.CATEGORIAS), o "" si no.
     """
-    categoria_global, ejes_global = _categoria_ejes(datos)
+    _, ejes_global = _categoria_ejes(datos)
+    vehiculo_global = _vehiculo(datos)
     lecturas = []
     for p in datos.get("placas") or []:
         if not isinstance(p, dict):
@@ -81,14 +93,16 @@ def interpretar(datos):
         placa = corregir_ocr(normalizar_placa(texto))
         if not es_formato_bolivia(placa):
             continue
-        categoria, ejes = _categoria_ejes(p)
+        _, ejes = _categoria_ejes(p)
+        vehiculo = _vehiculo(p) if p.get("categoria") or p.get("caja_vehiculo") else vehiculo_global
         lecturas.append({
             "placa": placa,
             "texto_leido": texto,
             "confianza": _confianza(p.get("confianza_lectura", p.get("confianza"))),
-            "categoria": categoria or categoria_global,
+            "categoria": vehiculo["clase"] if vehiculo["clase"] in CATEGORIAS_VALIDAS else "",
             "ejes": ejes if ejes is not None else ejes_global,
             "caja": _caja(p.get("caja")),
+            **vehiculo,
         })
     lecturas.sort(key=lambda l: l["confianza"] or 0, reverse=True)
     return lecturas

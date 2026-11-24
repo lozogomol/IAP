@@ -24,12 +24,14 @@ def _jpeg():
     return SimpleUploadedFile("frame.jpg", b"\xff\xd8\xff\xe0falso", content_type="image/jpeg")
 
 
-def _lectura(placa, confianza=0.7, categoria="", ejes=None, caja=None):
+def _lectura(placa, confianza=0.7, categoria="", ejes=None, caja=None, clase=None, confianza_clase=None,
+             caja_vehiculo=None):
     return {"placa": placa, "texto_leido": placa, "confianza": confianza, "categoria": categoria, "ejes": ejes,
-            "caja": caja}
+            "caja": caja, "clase": categoria if clase is None else clase, "confianza_clase": confianza_clase,
+            "caja_vehiculo": caja_vehiculo}
 
 
-SIN_VEHICULO = {"categoria": "", "confianza_categoria": None, "caja_vehiculo": None, "cajas_placas": []}
+SIN_VEHICULO = {"clase": "", "confianza_clase": None, "caja_vehiculo": None, "cajas_placas": []}
 
 
 class InterpretarTests(TestCase):
@@ -55,8 +57,27 @@ class InterpretarTests(TestCase):
                  "categoria": "minibus", "confianza_categoria": 88.1, "caja_vehiculo": [1, 2, 3, 4], "ejes": None}
         lec = interpretar(datos)
         self.assertEqual((lec[0]["categoria"], lec[0]["ejes"], lec[0]["caja"]), ("minibus", None, [5, 6, 7, 8]))
-        self.assertEqual(interpretar_vehiculo(datos), {"categoria": "minibus", "confianza_categoria": 0.881,
+        self.assertEqual(interpretar_vehiculo(datos), {"clase": "minibus", "confianza_clase": 0.881,
                                                        "caja_vehiculo": [1, 2, 3, 4], "cajas_placas": [[5, 6, 7, 8]]})
+
+    def test_cada_placa_usa_su_propio_vehiculo(self):
+        """La clase es la del vehículo que contiene la placa leída, no la global ni la de mayor porcentaje."""
+        datos = {"placas": [
+            {"texto": "2451KTP", "confianza_lectura": 95, "categoria": "moto", "confianza_categoria": 52,
+             "caja_vehiculo": [400, 100, 500, 300]},
+            {"texto": "3876LBD", "confianza_lectura": 80, "categoria": "bus", "confianza_categoria": 97,
+             "caja_vehiculo": [0, 0, 300, 300]},
+        ], "categoria": "moto", "confianza_categoria": 52, "caja_vehiculo": [400, 100, 500, 300]}
+        lec = interpretar(datos)
+        self.assertEqual([(x["placa"], x["clase"], x["categoria"], x["confianza_clase"], x["caja_vehiculo"])
+                          for x in lec],
+                         [("2451KTP", "moto", "moto", 0.52, [400, 100, 500, 300]),
+                          ("3876LBD", "bus", "bus", 0.97, [0, 0, 300, 300])])
+
+    def test_clase_del_modelo_se_muestra_tal_cual(self):
+        """Una clase sin tarifa se muestra igual (sin lista fija), pero no se usa para cobrar."""
+        lec = interpretar({"placas": [{"texto": "987PLB", "categoria": "tractor", "confianza_categoria": 70}]})
+        self.assertEqual((lec[0]["clase"], lec[0]["categoria"]), ("tractor", ""))
 
 
 class VotacionTests(TestCase):
@@ -203,7 +224,7 @@ class ApiFrameTests(TestCase):
                                     HTTP_X_CSRFTOKEN=self.csrf)
 
     def test_sin_placa_devuelve_vehiculo_y_cajas(self):
-        vehiculo = {"categoria": "camion", "confianza_categoria": 0.91, "caja_vehiculo": [10, 20, 300, 400],
+        vehiculo = {"clase": "camion", "confianza_clase": 0.91, "caja_vehiculo": [10, 20, 300, 400],
                     "cajas_placas": [[50, 60, 90, 80]]}
         d = self._frame([], vehiculo).json()
         self.assertEqual((d["accion"], d["mensaje"], d["paso"]), ("sin_placa", "Buscando placa…", None))
@@ -211,6 +232,13 @@ class ApiFrameTests(TestCase):
         self.assertEqual((lec["placa"], lec["categoria"], lec["confianza_categoria"], lec["caja_vehiculo"],
                           lec["cajas_placas"]), (None, "camion", 0.91, [10, 20, 300, 400], [[50, 60, 90, 80]]))
         self.assertIn("latencia_ms", lec)
+
+    def test_tipo_es_el_del_vehiculo_de_la_placa_leida(self):
+        global_ = {"clase": "bus", "confianza_clase": 0.98, "caja_vehiculo": [0, 0, 300, 300], "cajas_placas": []}
+        lec = _lectura("3876LBD", 0.7, categoria="auto", confianza_clase=0.55, caja_vehiculo=[400, 100, 600, 300])
+        d = self._frame([lec], global_).json()["lectura"]
+        self.assertEqual((d["categoria"], d["confianza_categoria"], d["caja_vehiculo"]),
+                         ("auto", 0.55, [400, 100, 600, 300]))
 
     def test_esperando_confirmacion_y_registrado(self):
         d = self._frame([_lectura("3876LBD", 0.7, caja=[1, 2, 3, 4])]).json()

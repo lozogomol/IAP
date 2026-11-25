@@ -13,6 +13,7 @@ from django.views.decorators.http import require_GET
 log = logging.getLogger(__name__)
 
 AZUL_NOCHE = "#050b1e"
+BLANCO = "#ffffff"
 VERSION_SW = "iap-v1"  # cambiarla invalida el caché de estáticos de todos los clientes
 
 
@@ -29,7 +30,7 @@ def manifest(request):
         "scope": "/",
         "display": "standalone",
         "orientation": "any",
-        "background_color": AZUL_NOCHE,
+        "background_color": BLANCO,  # pantalla de carga: el contenido principal es blanco
         "theme_color": AZUL_NOCHE,
         "categories": ["business", "productivity"],
         "icons": [

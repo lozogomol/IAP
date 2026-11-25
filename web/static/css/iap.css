@@ -10,6 +10,9 @@
 
 /* 1. Tokens ------------------------------------------------------------------------------------------ */
 :root {
+  /* Siempre tema claro: evita que Chrome (también dentro del APK/TWA con el modo oscuro de Android) oscurezca la
+     página automáticamente. Este CSS no tiene reglas para modo oscuro. */
+  color-scheme: light only;
   /* Azul noche */
   --n-0: #030712;
   --n-1: #050b1e;
@@ -45,9 +48,9 @@
 
 /* 2. Base -------------------------------------------------------------------------------------------- */
 *, *::before, *::after { box-sizing: border-box; border-radius: 0 !important; }
-html { -webkit-text-size-adjust: 100%; }
+html { -webkit-text-size-adjust: 100%; color-scheme: light only; background-color: #ffffff; color: var(--c-texto); }
 body {
-  margin: 0; min-height: 100vh; background: var(--c-fondo); color: var(--c-texto); font-family: var(--fuente);
+  margin: 0; min-height: 100vh; background-color: #ffffff; color: var(--c-texto); font-family: var(--fuente);
   font-size: var(--t-base); line-height: 1.55; -webkit-font-smoothing: antialiased; overflow-x: hidden;
 }
 img, video, canvas, svg { display: block; max-width: 100%; }
@@ -213,7 +216,7 @@ main.contenedor { padding-top: var(--e-4); padding-bottom: var(--e-6); }
 /* 8. Formularios ------------------------------------------------------------------------------------- */
 label { font-size: var(--t-sm); font-weight: 600; color: var(--c-texto); }
 input, select, textarea {
-  font: inherit; font-size: var(--t-base); color: var(--c-texto); background: #fff; border: 1px solid var(--c-borde-fuerte);
+  font: inherit; font-size: var(--t-base); color: var(--c-texto); background-color: #ffffff; border: 1px solid var(--c-borde-fuerte);
   min-height: var(--alto-control); padding: 0 12px; width: 100%; max-width: 100%;
   transition: border-color var(--transicion), box-shadow var(--transicion);
 }
@@ -259,7 +262,8 @@ a.kpi:hover { color: #fff; text-decoration: none; box-shadow: var(--sombra-alta)
 .kpi-tipos .barrita i { display: block; height: 100%; background: #fff; transition: width 400ms ease; }
 
 /* 10. Tablas: tarjetas en celular, tabla desde 768px ------------------------------------------------- */
-.tabla { width: 100%; border-collapse: collapse; font-size: var(--t-sm); }
+.tabla { width: 100%; border-collapse: collapse; font-size: var(--t-sm); background-color: #ffffff; color: var(--c-texto); }
+option { color: var(--c-texto); background-color: #ffffff; }
 .tabla thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 .tabla tbody { display: grid; gap: 12px; }
 .tabla tr { display: block; background: #fff; border: 1px solid var(--c-borde); border-left: 3px solid var(--n-2); padding: var(--e-1) var(--e-3); }
@@ -341,7 +345,7 @@ a.kpi:hover { color: #fff; text-decoration: none; box-shadow: var(--sombra-alta)
 .banner-alerta :focus-visible { outline-color: var(--c-peligro); }
 
 /* 14. Diálogos --------------------------------------------------------------------------------------- */
-dialog { border: 0; padding: 0; color: var(--c-texto); max-width: calc(100vw - 2 * var(--e-3)); }
+dialog { border: 0; padding: 0; color: var(--c-texto); background-color: #ffffff; max-width: calc(100vw - 2 * var(--e-3)); }
 dialog::backdrop { background: rgba(3, 7, 18, .75); }
 dialog[open] { animation: entrar 150ms ease-out; }
 .visor { background: #fff; border: 1px solid var(--n-2); border-top: 3px solid var(--n-2); width: min(1100px, 100%); }

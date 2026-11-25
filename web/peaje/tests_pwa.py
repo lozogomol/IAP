@@ -28,7 +28,7 @@ class ManifestTests(TestCase):
                          ("Peaje IAP", "Peaje IAP", "Sistema inteligente de control de peaje"))
         self.assertEqual((m["start_url"], m["scope"], m["display"], m["orientation"]),
                          ("/caseta", "/", "standalone", "any"))
-        self.assertEqual((m["background_color"], m["theme_color"]), ("#050b1e", "#050b1e"))
+        self.assertEqual((m["background_color"], m["theme_color"]), ("#ffffff", "#050b1e"))  # carga blanca
         iconos = {(i["sizes"], i["purpose"]): i for i in m["icons"]}
         self.assertEqual(set(iconos), {("192x192", "any"), ("512x512", "any"), ("512x512", "maskable")})
         for icono in m["icons"]:
@@ -109,3 +109,32 @@ class BaseHtmlTests(TestCase):
         r = self.client.get("/caseta")
         self.assertContains(r, "navigator.mediaDevices.getUserMedia")
         self.assertContains(r, "Ajustes del teléfono > Apps > Peaje IAP (o Chrome) > Permisos > Cámara")
+
+
+class TemaClaroTests(TestCase):
+    """En el APK (TWA) con el modo oscuro de Android, Chrome no debe oscurecer la página: siempre tema claro."""
+
+    def _css(self):
+        return (Path(settings.BASE_DIR) / "static" / "css" / "iap.css").read_text(encoding="utf-8")
+
+    def test_meta_color_scheme_en_base_login_y_offline(self):
+        meta = '<meta name="color-scheme" content="light only">'
+        self.assertContains(self.client.get("/login"), meta, html=False)
+        self.assertContains(self.client.get("/offline"), meta, html=False)
+        entrar(self.client, Usuario.objects.get(email_google="lozogomol@gmail.com"))
+        self.assertContains(self.client.get("/"), meta, html=False)
+        self.assertContains(self.client.get("/caseta"), meta, html=False)
+
+    def test_css_fuerza_tema_claro_sin_reglas_oscuras(self):
+        css = self._css()
+        self.assertIn("color-scheme: light only;", css.split(":root {", 1)[1].split("}", 1)[0])
+        self.assertNotIn("prefers-color-scheme", css)  # ninguna regla de modo oscuro
+        self.assertIn("html { -webkit-text-size-adjust: 100%; color-scheme: light only; background-color: #ffffff;", css)
+        self.assertIn("margin: 0; min-height: 100vh; background-color: #ffffff; color: var(--c-texto);", css)
+
+    def test_controles_y_tablas_con_colores_explicitos(self):
+        css = self._css()
+        for regla in ("input, select, textarea {", ".tabla {", "option {", "dialog {"):
+            bloque = css.split(regla, 1)[1].split("}", 1)[0]
+            self.assertIn("background-color: #ffffff", bloque, regla)
+            self.assertIn("color: var(--c-texto)", bloque, regla)

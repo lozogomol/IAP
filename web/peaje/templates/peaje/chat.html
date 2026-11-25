@@ -9,11 +9,7 @@
     <div class="mensaje">
       <span class="avatar" aria-hidden="true">{% icono "bot" %}</span>
       <div class="burbuja">
-        <p>Hola. Consulto placas en el registro del peaje: si está registrada, cuándo pasó y cuánto se cobró.</p>
-        <p class="ejemplos">Prueba con:
-          <button type="button" class="boton chico ejemplo">¿Pasó la placa 1234ABC?</button>
-          <button type="button" class="boton chico ejemplo">Historial de 2451KTP</button>
-          <span class="tenue">o envía una foto de una placa.</span></p>
+        <p>Hola. Consulto placas registradas en el peaje: escribe una placa o envía una foto.</p>
       </div>
     </div>
   </section>
@@ -30,9 +26,7 @@
       <button type="button" id="quitar-adjunto" class="boton chico">{% icono "cerrar" %}Quitar</button>
     </div>
     <div class="compositor-fila">
-      <label class="boton icono" for="adjunto" title="Adjuntar imagen">{% icono "imagen" %}<span class="visualmente-oculto">Adjuntar imagen</span></label>
-      <input id="adjunto" class="visualmente-oculto" type="file" accept="image/*">
-      <label class="boton icono solo-tactil" for="foto" title="Tomar foto">{% icono "camara" %}<span class="visualmente-oculto">Tomar foto</span></label>
+      <label class="boton icono" for="foto" title="Foto de una placa">{% icono "camara" %}<span class="visualmente-oculto">Foto de una placa</span></label>
       <input id="foto" class="visualmente-oculto" type="file" accept="image/*" capture="environment">
       <label for="mensaje" class="visualmente-oculto">Mensaje</label>
       <textarea id="mensaje" name="mensaje" rows="1" maxlength="1000" placeholder="Escribe una placa o una pregunta…" enterkeyhint="send"></textarea>
@@ -87,8 +81,28 @@
     var li = el("li"); li.appendChild(el("span", null, k)); li.appendChild(el("b", null, String(v))); ul.appendChild(li);
   }
 
+  // Pasos de un día o resumen del día: lista compacta con los datos de la herramienta.
+  function tarjetaDia(burbuja, d) {
+    var x = d.datos || {}, t = el("div", "tarjeta-estado"), ul = el("ul", "lista-datos");
+    if (d.estado === "resumen_dia") {
+      fila(ul, "Fecha", x.fecha); fila(ul, "Pasos", x.total_pasos); fila(ul, "Cobrados", x.cobrados);
+      fila(ul, "Recaudación", x.recaudado_bs + " Bs");
+      fila(ul, "Alertas", x.alertas + " (" + x.alertas_pendientes + " pendientes)");
+    } else {
+      (x.pasos || []).forEach(function (p) {
+        fila(ul, p.hora.slice(0, 5) + " · " + p.placa, p.tipo + " · " + p.ejes + " ejes · " +
+             (p.tarifa_bs || "–") + " Bs · " + p.resultado);
+      });
+      if (x.total > x.mostrados) t.appendChild(el("p", "tenue pequeno", "Se muestran " + x.mostrados + " de " + x.total + " pasos."));
+    }
+    if (ul.children.length) { t.insertBefore(ul, t.firstChild); burbuja.appendChild(t); }
+  }
+
   // Tarjeta con el estado en color, los datos del último paso y su captura (si existe).
   function tarjeta(burbuja, d) {
+    if ((d.estado === "pasos_por_fecha" || d.estado === "resumen_dia") && d.datos && d.datos.fecha) {
+      tarjetaDia(burbuja, d); return;
+    }
     var info = ESTADOS[d.estado];
     if (!info) return;
     var t = el("div", "tarjeta-estado");
@@ -187,7 +201,6 @@
     $("vista-adjunto").hidden = false;
   }
   function quitarAdjunto() { adjunto = null; $("vista-adjunto").hidden = true; $("vista-img").removeAttribute("src"); }
-  $("adjunto").addEventListener("change", elegir);
   $("foto").addEventListener("change", elegir);
   $("quitar-adjunto").addEventListener("click", quitarAdjunto);
 
@@ -198,9 +211,6 @@
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); enviar(campo.value); }
   });
   form.addEventListener("submit", function (e) { e.preventDefault(); enviar(campo.value); });
-  Array.prototype.forEach.call(document.querySelectorAll(".ejemplo"), function (b) {
-    b.addEventListener("click", function () { enviar(b.textContent); });
-  });
   campo.focus();
 })();
 </script>

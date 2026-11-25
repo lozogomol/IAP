@@ -25,6 +25,7 @@ from . import tiempo_real
 from .forms import VehiculoForm
 from .models import CATEGORIAS, Alerta, Paso, Usuario, Vehiculo, caseta_principal
 from .placas import normalizar_placa
+from .servicios import agente
 
 log = logging.getLogger(__name__)
 
@@ -346,6 +347,8 @@ def estado(request):
     datos.update(_estado_bd())
     if datos["base_datos"] != "ok":
         status = 503
+    asistente = agente.estado_asistente()
+    datos["asistente"] = asistente
     if request.GET.get("format") == "json":
         return JsonResponse(datos, status=status)
     modelos = []
@@ -353,4 +356,5 @@ def estado(request):
         srv = (datos.get("detalle") or {}).get("modelos") or {}
         modelos = [(nombre, *ESTADOS_MODELO.get(srv.get(clave, "pendiente"), ("Desconocido", "aviso")))
                    for clave, nombre in MODELOS]
-    return render(request, "peaje/estado.html", {"datos": datos, "modelos": modelos, "bd_ok": datos["base_datos"] == "ok"}, status=status)
+    return render(request, "peaje/estado.html", {"datos": datos, "modelos": modelos, "bd_ok": datos["base_datos"] == "ok",
+                                                 "asistente": asistente}, status=status)

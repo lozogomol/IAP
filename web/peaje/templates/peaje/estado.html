@@ -2,7 +2,7 @@
 {% load iconos %}
 {% block titulo %}Estado del sistema{% endblock %}
 {% block h1 %}Estado del sistema{% endblock %}
-{% block subtitulo %}Web, base de datos y modelos de inferencia{% endblock %}
+{% block subtitulo %}Web, base de datos, modelos de inferencia y asistente IA{% endblock %}
 {% block acciones %}<a class="boton" href="/estado">{% icono "refrescar" %}Comprobar</a>{% endblock %}
 {% block contenido %}
 
@@ -34,6 +34,16 @@
     {% else %}
       <div class="servicio-cab">{% icono "chip" %}<h2 id="s-ia">Inferencia</h2><span class="luz aviso" aria-hidden="true"></span></div>
       <span class="texto-estado aviso">{{ datos.inferencia|capfirst }}</span>
+    {% endif %}
+  </section>
+
+  <section class="tarjeta servicio" aria-labelledby="s-agente">
+    <div class="servicio-cab">{% icono "bot" %}<h2 id="s-agente">Asistente IA</h2><span class="luz {% if asistente.activo %}ok{% else %}aviso{% endif %}" aria-hidden="true"></span></div>
+    {% if asistente.activo %}
+      <span class="texto-estado ok">Asistente IA: Gemini activo</span>
+      <ul class="lista-datos"><li><span>Modelo</span><b>{{ asistente.modelo }}</b></li></ul>
+    {% else %}
+      <span class="texto-estado aviso">Asistente IA: modo básico ({{ asistente.motivo }})</span>
     {% endif %}
   </section>
 </div>

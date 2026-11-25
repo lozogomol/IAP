@@ -126,8 +126,11 @@ PUSHER_SECRET = os.environ.get("PUSHER_SECRET", "")
 PUSHER_CLUSTER = os.environ.get("PUSHER_CLUSTER", "us2")
 
 # --- Agente conversacional (Gemini). Sin clave responde el agente por reglas. ---
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+# En los tests la clave se vacía: nunca llaman a la API real (los tests que la necesitan la mockean).
+GEMINI_API_KEY = "" if "test" in sys.argv else os.environ.get("GEMINI_API_KEY", "")
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "")  # vacío = el "flash" por defecto de peaje/servicios/agente.py
+# Si el principal está saturado o falla; uno o varios separados por comas (vacío = respaldo por defecto del agente).
+GEMINI_MODEL_RESPALDO = os.environ.get("GEMINI_MODEL_RESPALDO", "")
 
 # --- Capturas de los pasos: Cloudinary si CLOUDINARY_URL (cloudinary://key:secret@nube); si no, disco local. ---
 CLOUDINARY_URL = os.environ.get("CLOUDINARY_URL", "")

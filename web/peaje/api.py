@@ -202,15 +202,18 @@ _turnos = inline_serializer("TurnoChat", fields={
 @extend_schema(
     summary="Asistente: pregunta en lenguaje natural sobre una placa (texto y/o foto)",
     description=(
-        "Agente conversacional con Gemini (function calling) y, si no hay clave o la API falla, un agente por reglas "
-        "con las mismas herramientas: `consultar_placa`, `historial_placa` y `leer_placa_imagen` (inferencia M1 sobre "
-        "la imagen adjunta). Las respuestas salen solo de la base de datos del peaje; nunca se inventan datos. "
+        "Agente conversacional con Gemini (function calling; si el modelo principal está saturado, el de respaldo) "
+        "y, si no hay clave o la API falla, un agente por reglas con las mismas herramientas: `consultar_placa`, "
+        "`historial_placa`, `pasos_por_fecha`, `resumen_dia` y `leer_placa_imagen` (inferencia M1 sobre la imagen "
+        "adjunta). Las respuestas salen solo de la base de datos del peaje; nunca se inventan datos. Solo atiende "
+        "consultas del peaje: otros temas reciben un mensaje de límite (`estado: limite`). "
         "Entrada: JSON `{mensaje, historial?}` o multipart con `mensaje`, `historial` (JSON) e `imagen`. "
         "`historial`: lista de `{rol: usuario|asistente, texto}` (se usan los últimos 10). "
         "Respuesta: `respuesta` (texto), `estado` (`registrada_con_paso` | `registrada_sin_paso` | "
-        "`identificada_no_registrada` | `no_existe` | `sin_lectura` | `sin_imagen` | `inferencia_no_disponible` | "
-        "`ayuda`), `placa`, `sugerencias` (¿Quisiste decir…?), `datos` (lo que devolvió la herramienta, con "
-        "`ultimo_paso` e `imagen_url` si existe) y `motor` (`gemini` | `reglas`)."
+        "`identificada_no_registrada` | `no_existe` | `pasos_por_fecha` | `resumen_dia` | `sin_lectura` | `sin_imagen` | "
+        "`inferencia_no_disponible` | `limite` | `ayuda`), `placa`, `sugerencias` (¿Quisiste decir…?), `datos` (lo "
+        "que devolvió la herramienta, con `ultimo_paso` e `imagen_url` si existe), `motor` (`gemini` | `reglas`), "
+        "`modelo` (el modelo de Gemini que respondió) y `motivo` (por qué respondió el agente por reglas)."
     ),
     request={
         "application/json": inline_serializer("ChatEntrada", fields={
@@ -222,7 +225,9 @@ _turnos = inline_serializer("TurnoChat", fields={
     responses={200: inline_serializer("ChatRespuesta", fields={
         "respuesta": serializers.CharField(), "estado": serializers.CharField(),
         "placa": serializers.CharField(allow_null=True), "sugerencias": serializers.ListField(child=serializers.CharField()),
-        "datos": serializers.DictField(allow_null=True), "motor": serializers.CharField()}), 400: _respuesta},
+        "datos": serializers.DictField(allow_null=True), "motor": serializers.CharField(),
+        "modelo": serializers.CharField(allow_null=True), "motivo": serializers.CharField(allow_null=True)}),
+        400: _respuesta},
 )
 @api_view(["POST"])
 @parser_classes([JSONParser, MultiPartParser, FormParser])

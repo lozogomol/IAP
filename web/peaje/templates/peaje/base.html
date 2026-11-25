@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#0b1230">
+  <meta name="theme-color" content="#050b1e">
   <title>{% block titulo %}Peaje IAP{% endblock %} · Peaje IAP</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -14,6 +14,7 @@
 <body class="{% block clase_body %}{% endblock %}">
   {% block cabecera %}
   <header id="cabecera" class="barra-sup galaxia">
+    <span class="estrellas" aria-hidden="true"></span>
     <div class="barra">
       <a class="marca" href="/">{% include "peaje/_icono.html" %}<span>Peaje IAP</span></a>
       <div id="navegacion" class="navegacion">
@@ -21,12 +22,12 @@
         <nav class="menu" aria-label="Principal">
           {% if usuario_sesion %}
           <a href="/" {% if ruta == "/" %}class="activo" aria-current="page"{% endif %}>{% icono "barras" %}Panel</a>
-          <a href="/caseta" {% if ruta == "/caseta" %}class="activo" aria-current="page"{% endif %}>{% icono "camara" %}Caseta</a>
+          <a href="/caseta" {% if ruta == "/caseta" %}class="activo" aria-current="page"{% endif %}>{% icono "camara" %}Punto de cobro</a>
           <a href="/consulta" {% if ruta == "/consulta" %}class="activo" aria-current="page"{% endif %}>{% icono "buscar" %}Consulta</a>
           <a href="/vehiculos" {% if ruta == "/vehiculos" %}class="activo" aria-current="page"{% endif %}>{% icono "auto" %}Vehículos</a>
           <a href="/pasos" {% if ruta == "/pasos" %}class="activo" aria-current="page"{% endif %}>{% icono "lista" %}Pasos</a>
           <a href="/alertas" {% if ruta == "/alertas" %}class="activo" aria-current="page"{% endif %}>{% icono "campana" %}Alertas</a>
-          <a href="/chat" {% if ruta == "/chat" %}class="activo" aria-current="page"{% endif %}>{% icono "chat" %}Chat</a>
+          <a href="/chat" {% if ruta == "/chat" %}class="activo" aria-current="page"{% endif %}>{% icono "chat" %}Asistente</a>
           {% endif %}
           <a href="/estado" {% if ruta == "/estado" %}class="activo" aria-current="page"{% endif %}>{% icono "actividad" %}Estado</a>
           {% if usuario_sesion.rol == "admin" %}
@@ -34,18 +35,22 @@
           {% endif %}
         </nav>
         {% endwith %}
-        <div class="usuario">
-          {% if usuario_sesion %}
-            <span class="avatar" title="{{ usuario_sesion.nombre }}" aria-hidden="true">{{ usuario_sesion.nombre|iniciales }}</span>
-            <span class="usuario-nombre" title="{{ usuario_sesion.nombre }}">{{ usuario_sesion.nombre }}</span>
-            <span class="rol">{{ usuario_sesion.rol }}</span>
-            <a class="boton chico" href="/logout">{% icono "salir" %}Salir</a>
-          {% else %}
-            <a class="boton chico" href="/login">Iniciar sesión</a>
-          {% endif %}
+      </div>
+      {% if usuario_sesion %}
+      <div class="usuario">
+        <button id="usuario-btn" class="boton-barra" type="button" aria-haspopup="true" aria-expanded="false"
+                aria-controls="usuario-menu" aria-label="Cuenta de {{ usuario_sesion.nombre }}">{% icono "persona" %}</button>
+        <div id="usuario-menu" class="usuario-menu" hidden>
+          <p class="usuario-nombre" title="{{ usuario_sesion.nombre }}">{{ usuario_sesion.nombre }}</p>
+          <p class="usuario-correo" title="{{ usuario_sesion.email }}">{{ usuario_sesion.email }}</p>
+          <p class="usuario-rol">{% if usuario_sesion.rol == "admin" %}Administrador{% else %}Operador{% endif %}</p>
+          <a class="boton" href="/logout">{% icono "salir" %}Salir</a>
         </div>
       </div>
-      <button id="menu-btn" class="menu-btn" type="button" aria-label="Abrir menú" aria-expanded="false" aria-controls="navegacion">
+      {% else %}
+      <a class="boton claro" href="/login">Iniciar sesión</a>
+      {% endif %}
+      <button id="menu-btn" class="boton-barra menu-btn" type="button" aria-label="Abrir menú" aria-expanded="false" aria-controls="navegacion">
         {% icono "menu" "ico ico-menu" %}{% icono "cerrar" "ico ico-cerrar" %}
       </button>
     </div>
@@ -127,6 +132,19 @@
         document.addEventListener("keydown", function (e) { if (e.key === "Escape") menu(false); });
         document.addEventListener("click", function (e) { if (!cab.contains(e.target)) menu(false); });
         window.addEventListener("resize", function () { if (window.innerWidth >= 1200) menu(false); });
+      }
+
+      // Menú de la cuenta (ícono de usuario): nombre, correo, rol y Salir
+      var ub = document.getElementById("usuario-btn"), um = document.getElementById("usuario-menu");
+      function cuenta(abierto) {
+        if (!ub) return;
+        um.hidden = !abierto;
+        ub.setAttribute("aria-expanded", abierto ? "true" : "false");
+      }
+      if (ub) {
+        ub.addEventListener("click", function (e) { e.stopPropagation(); menu(false); cuenta(um.hidden); });
+        document.addEventListener("click", function (e) { if (!um.contains(e.target)) cuenta(false); });
+        document.addEventListener("keydown", function (e) { if (e.key === "Escape" && !um.hidden) { cuenta(false); ub.focus(); } });
       }
 
       // Toasts: se cierran solos (los de error duran más) o con el botón

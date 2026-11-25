@@ -1,5 +1,6 @@
 """Tests del rediseño: panel (KPIs, gráfica, tiempo real), capturas, vehículos, alertas, consulta y estado."""
 import hashlib
+from pathlib import Path
 import hmac
 import json
 import shutil
@@ -14,7 +15,7 @@ from django.utils import timezone
 from . import panel, tiempo_real
 from .models import Alerta, Caseta, Paso, Usuario, Vehiculo, caseta_principal
 from .tests import entrar
-from .tests_caseta import INFERIR, _jpeg, _lectura
+from .tests_caseta import INFERIR, _jpeg, _lectura, pasar_vehiculo
 
 PUSHER = {"PUSHER_APP_ID": "123", "PUSHER_KEY": "clave", "PUSHER_SECRET": "secreto", "PUSHER_CLUSTER": "us2"}
 
@@ -55,8 +56,9 @@ class CasetaPrincipalTests(TestCase):
         r = self.client.get("/caseta")
         self.assertContains(r, "<h1>Punto de cobro</h1>", html=False)
         self.assertContains(r, f'<script id="caseta-id" type="application/json">{caseta_principal().id}</script>')
-        for texto in ("Categoría", "Ejes", "Pasajeros", "Monto"):
+        for texto in ("Placa", "Tipo", "Ejes", "Pasajeros", "Esperando vehículo", "zoom"):
             self.assertContains(r, texto)
+        self.assertNotContains(r, "Registrar paso")  # sin registro manual: solo Iniciar / Detener
         self.assertNotContains(r, "Senkata")
 
 
@@ -116,8 +118,8 @@ class FrameCapturaTiempoRealTests(MediaTemporal):
         self.caseta = caseta_principal()
 
     def _frame(self, placa):
-        with mock.patch(INFERIR, return_value=([_lectura(placa, 0.95)], 50, {})):
-            return self.client.post("/api/v1/pasos/frame", {"imagen": _jpeg(), "caseta_id": self.caseta.id})
+        """Un vehículo completo: bloquea la placa, sale de cuadro y se cobra solo."""
+        return pasar_vehiculo(self.client, self.caseta, [_lectura(placa, 0.95)])[1]
 
     def test_guarda_captura_local_y_la_sirve(self):
         d = self._frame("3876LBD").json()
@@ -156,8 +158,8 @@ class FrameCapturaTiempoRealTests(MediaTemporal):
 
     @override_settings(**PUSHER)
     def test_evento_y_panel_con_categoria_detectada(self):
-        with mock.patch.object(tiempo_real, "en_segundo_plano", _sincrono),                 mock.patch("peaje.tiempo_real.requests.post") as post,                 mock.patch(INFERIR, return_value=([{**_lectura("2451KTP", 0.95), "categoria": "bus"}], 50, {})):
-            self.client.post("/api/v1/pasos/frame", {"imagen": _jpeg(), "caseta_id": self.caseta.id})
+        with mock.patch.object(tiempo_real, "en_segundo_plano", _sincrono),                 mock.patch("peaje.tiempo_real.requests.post") as post:
+            pasar_vehiculo(self.client, self.caseta, [{**_lectura("2451KTP", 0.95), "categoria": "bus"}])
         paso = json.loads(json.loads(post.call_args.kwargs["data"])["data"])["paso"]
         self.assertEqual((paso["categoria"], paso["categoria_texto"]), ("bus", "Bus"))
         pasos = self.client.get("/panel/datos").json()["pasos"]
@@ -168,8 +170,9 @@ class FrameCapturaTiempoRealTests(MediaTemporal):
     @override_settings(**PUSHER)
     def test_duplicado_no_emite(self):
         self._frame("3876LBD")
-        with mock.patch.object(tiempo_real, "en_segundo_plano") as fondo:
-            self.assertEqual(self._frame("3876LBD").json()["accion"], "duplicado")
+        with mock.patch.object(tiempo_real, "en_segundo_plano") as fondo,                 mock.patch(INFERIR, return_value=([_lectura("3876LBD", 0.95)], 50, {})):
+            r = self.client.post("/api/v1/pasos/frame", {"imagen": _jpeg(), "caseta_id": self.caseta.id})
+        self.assertEqual(r.json()["accion"], "duplicado")
         fondo.assert_not_called()
 
     @override_settings(CLOUDINARY_URL="cloudinary://k123:s456@minube")
@@ -328,7 +331,7 @@ class EstadoPaginaTests(TestCase):
 
 
 class DisenoTests(TestCase):
-    """Guardas del sistema de diseño "azul noche": sin emojis, sin la paleta roja anterior y radios con variables."""
+    """Guardas del sistema de diseño "azul noche oscuro": sin emojis, esquinas rectas y paleta azul."""
 
     def _archivos(self):
         from pathlib import Path
@@ -346,35 +349,36 @@ class DisenoTests(TestCase):
     def test_sin_emojis_ni_rojo_anterior(self):
         import re
         emoji = re.compile("[\U0001F000-\U0001FAFF\u2600-\u27BF\u2B00-\u2BFF\uFE0F]")
-        rojo = re.compile(r"#(991b1b|7f1d1d|3b0a12|1a0508|0a0204|fca5a5|fecaca|fee2e2)\b"
-                          r"|rgba\(\s*(153\s*,\s*27|127\s*,\s*29|10\s*,\s*2\s*,\s*4)\b", re.I)
+        rojo = re.compile(r"#(991b1b|7f1d1d|3b0a12|1a0508|0a0204|fca5a5|fecaca|fee2e2)\b", re.I)
         for archivo in self._archivos():
             texto = archivo.read_text(encoding="utf-8")
             for patron, que in ((emoji, "emoji"), (rojo, "rojo anterior")):
                 m = patron.search(texto)
                 self.assertIsNone(m, f"{que} en {archivo.name}: {m and m.group(0)!r}")
 
-    def test_paleta_azul_noche_y_tokens(self):
+    def test_paleta_azul_noche_oscuro(self):
         css = self._css()
-        for color in ("#070b1a", "#0b1230", "#111a3f", "#1b2a5e", "#3b6cf5", "#2f56c9", "#8fb0ff", "#2a3f86",
-                      "#ffffff", "#0f172a", "#64748b", "#e2e8f0", "#16a34a", "#d97706", "#dc2626"):
+        for color in ("#030712", "#050b1e", "#0a1430", "#101e45", "#2b4fd8", "#1f3eb5", "#9db4ff",
+                      "#ffffff", "#e2e8f0", "#16a34a", "#d97706", "#dc2626"):
             self.assertIn(color, css)
-        self.assertIn("--radio: 8px", css)
         self.assertIn("--ancho-max: 1280px", css)
-        self.assertIn("prefers-reduced-motion", css)
+        self.assertIn("--alto-control: 44px", css)
         self.assertIn('"Inter"', css)
 
-    def test_radios_con_variables(self):
+    def test_esquinas_rectas_en_todo(self):
         import re
-        valido = re.compile(r"^(0|50%|var\(--radio[a-z-]*\))$")
+        css = self._css()
+        self.assertIn("border-radius: 0 !important", css)
         for archivo in self._archivos():
-            for valor in re.findall(r"border-radius\s*:\s*([^;}]*)", archivo.read_text(encoding="utf-8"), re.I):
-                for parte in valor.replace("!important", "").split():
-                    self.assertRegex(parte, valido, f"border-radius sin variable en {archivo.name}: {valor!r}")
+            for valor in re.findall(r'border-radius\s*:\s*([^;}"]*)', archivo.read_text(encoding="utf-8"), re.I):
+                self.assertRegex(valor.strip(), r"^0(px)?\s*(!important)?$", f"esquina redondeada en {archivo.name}")
+        self.assertIn("cornerRadius: 0", (Path(__file__).parent / "templates" / "peaje" / "panel.html").read_text(encoding="utf-8"))
 
-    def test_galaxia_solo_en_barra_login_y_kpi(self):
-        from pathlib import Path
+    def test_galaxia_animada_solo_en_barra_login_y_kpi(self):
         from django.conf import settings
+        css = self._css()
+        for animacion in ("@keyframes nebulosa", "@keyframes titilar", "prefers-reduced-motion"):
+            self.assertIn(animacion, css)
         permitidos = {"base.html", "login.html", "panel.html"}
         for archivo in (Path(settings.BASE_DIR) / "peaje" / "templates").rglob("*.html"):
             if "galaxia" in archivo.read_text(encoding="utf-8"):
@@ -390,7 +394,8 @@ class DisenoTests(TestCase):
             self.assertContains(r, f"<h1>{titulo}</h1>", html=False)
             self.assertLessEqual(r.content.decode().count('class="subtitulo"'), 1, ruta)
         r = self.client.get("/")
-        self.assertContains(r, 'class="avatar"')
+        self.assertContains(r, 'id="usuario-btn"')
+        self.assertContains(r, "Administrador")
 
     def test_confirmacion_y_tablas_apilables(self):
         entrar(self.client, Usuario.objects.get(email_google="lozogomol@gmail.com"))
@@ -399,3 +404,36 @@ class DisenoTests(TestCase):
         self.assertContains(r, 'data-label="Placa"')
         self.assertContains(r, "css/iap.css")
         self.assertContains(r, 'aria-label="Abrir menú"')
+
+
+class SeccionesFlujoTests(TestCase):
+    """Panel por tipo, consulta con punto de cobro y CRUD de vehículos."""
+
+    def setUp(self):
+        self.admin = Usuario.objects.get(email_google="lozogomol@gmail.com")
+        entrar(self.client, self.admin)
+
+    def test_panel_vehiculos_por_tipo(self):
+        Paso.objects.all().delete()
+        for placa, cat in (("3876LBD", "auto"), ("1520GHR", "auto"), ("4471LCH", "bus"), ("6120PQR", "")):
+            _paso(placa, categoria_detectada=cat)
+        tipos = {f["texto"]: f["n"] for f in panel.kpis()["por_tipo"]}
+        self.assertEqual((tipos["Auto"], tipos["Bus"], tipos["Moto"], tipos["Sin tipo"]), (2, 1, 0, 1))
+        self.assertContains(self.client.get("/"), "Vehículos por tipo")
+
+    def test_consulta_muestra_punto_de_cobro(self):
+        _paso("3876LBD", categoria_detectada="auto", ejes_detectados=2, monto="4")
+        u = self.client.get("/api/v1/vehiculos/consulta", {"placa": "3876LBD"}).json()["ultimo_paso"]
+        self.assertEqual((u["caseta"], u["categoria_texto"], u["ejes"], u["monto"]), ("Peaje IAP", "Auto", 2, "4.00"))
+
+    def test_eliminar_vehiculo_conserva_historial(self):
+        v = Vehiculo.objects.get(placa="3876LBD")
+        _paso("3876LBD")
+        oper = Usuario.objects.create(email_google="o2@x.com", nombre="Olga", rol="operador")
+        otro = self.client_class()
+        entrar(otro, oper)
+        self.assertEqual(otro.post(f"/vehiculos/{v.id}", {"accion": "eliminar"}).status_code, 403)
+        self.assertContains(self.client.get("/vehiculos"), 'value="eliminar"')
+        self.client.post(f"/vehiculos/{v.id}", {"accion": "eliminar"})
+        self.assertFalse(Vehiculo.objects.filter(placa="3876LBD").exists())
+        self.assertTrue(Paso.objects.filter(placa_normalizada="3876LBD").exists())

@@ -11,9 +11,9 @@ from rest_framework.decorators import api_view, parser_classes
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 
-from . import cobro, panel
+from . import cobro, flujo, panel
 from .inferencia import InferenciaNoDisponible, inferir
-from .models import Caseta, LecturaPlaca
+from .models import Caseta
 
 log = logging.getLogger("peaje.caseta")
 
@@ -38,15 +38,18 @@ def _ms(t0):
 @extend_schema(
     summary="Procesa un frame de la cámara de una caseta",
     description=(
-        "Lee la placa y el tipo de vehículo del frame y devuelve SIEMPRE el resultado de ese frame, aunque no "
-        "registre paso. Votación: registra con >= 2 lecturas iguales en 4 s o 1 lectura con confianza >= 0.80. "
-        "Anti-duplicado: la misma placa en la misma caseta no se cobra dos veces en 30 s. "
-        "Respuesta: `lectura` {placa, confianza, categoria, confianza_categoria, ejes, llantas_detectadas, "
-        "pasajeros, latencia_ms, latencia_modelos_ms, caja_placa, caja_vehiculo, cajas_placas, cajas_llantas} (cajas [x1, y1, x2, y2] en píxeles del frame enviado), "
-        "`lectura.categoria` es la clase (modelo.names) del vehículo que contiene la placa leída, o del más grande y "
-        "centrado si no hay placa. `accion`: `registrado` | `esperando_confirmacion` | `duplicado` | `sin_placa` | `error`, "
-        "`paso` (si existe), `mensaje` (texto corto en español), `votos`/`votos_necesarios` y "
-        "`segundos_desde_ultimo_paso` (si es duplicado). Si la inferencia falla responde 502 con `accion: error`."
+        "Un vehículo = un paso. Cada frame alimenta la máquina de estados de la caseta: (a) PLACA por votación "
+        "(2 lecturas iguales en 4 s o 1 con confianza >= 0.80) que queda bloqueada durante el paso; (b) TIPO por "
+        "mayoría sobre el vehículo de esa placa; (c) EJES por mayoría (mínimo 2); (d) PASAJEROS: máximo conteo "
+        "estable. (e) El paso se registra y cobra SOLO cuando el vehículo sale de cuadro (2 s sin verlo) o a los 8 s "
+        "del bloqueo con placa + tipo + ejes (a los 15 s siempre). Anti-duplicado: la misma placa en la misma caseta "
+        "no se registra otra vez en 30 s. "
+        "Respuesta: `accion` `sin_placa` | `esperando_confirmacion` | `en_curso` | `registrado` | `duplicado` | "
+        "`error`; `flujo` {etapa, placa, placa_bloqueada, tipo, tipo_texto, tipo_listo, ejes, ejes_listo, pasajeros, "
+        "pasajeros_listo, segundos}; `lectura` (resultado de ESTE frame: placa, confianza, categoria, ejes, "
+        "pasajeros, cajas [x1, y1, x2, y2] en píxeles del frame enviado, latencias); `paso` (si se registró o es "
+        "duplicado), `mensaje` (texto corto en español), `captura` (evidencia del paso registrado). Si la "
+        "inferencia falla responde 502 con `accion: error`."
     ),
     request=inline_serializer("FrameEntrada", fields={
         "imagen": serializers.ImageField(), "caseta_id": serializers.IntegerField()}),
@@ -104,40 +107,50 @@ def paso_frame(request):
         "latencia_inferencia_ms": ms_inferencia,
         "latencia_modelos_ms": vehiculo.get("latencias") or {},
     }
-    if mejor is None:
-        return responder("sin_placa", "Buscando placa…", lectura)
-
-    LecturaPlaca.objects.create(caseta=caseta, placa=mejor["placa"], confianza=mejor["confianza"],
-                                categoria=mejor["categoria"], ejes=mejor["ejes"], pasajeros=vehiculo.get("pasajeros"))
-    voto = cobro.votar(caseta)
-    if voto is None:
-        previo = cobro.paso_reciente(caseta, mejor["placa"])
-        if previo:
-            return _duplicado(responder, previo, lectura)
-        votos = cobro.votos_de(caseta, mejor["placa"])
+    r = flujo.procesar_frame(caseta, lecturas, vehiculo, imagen, usuario=request.user)
+    accion, estado_flujo = r["accion"], r["flujo"]
+    if accion == "sin_placa":
+        return responder("sin_placa", "Buscando placa…", lectura, flujo=estado_flujo)
+    if accion == "esperando_confirmacion":
         return responder("esperando_confirmacion",
-                         f"Leyendo {mejor['placa']} (confirmando {votos}/{cobro.MIN_VOTOS})", lectura,
-                         votos=votos, votos_necesarios=cobro.MIN_VOTOS)
+                         f"Leyendo {mejor['placa']} (confirmando {r['votos']}/{cobro.MIN_VOTOS})", lectura,
+                         flujo=estado_flujo, votos=r["votos"], votos_necesarios=cobro.MIN_VOTOS)
+    if accion == "duplicado":
+        return _duplicado(responder, r["paso"], lectura, estado_flujo)
+    if accion == "en_curso":
+        return responder("en_curso", MENSAJE_ETAPA[estado_flujo["etapa"]].format(**estado_flujo), lectura,
+                         flujo=estado_flujo)
 
-    paso, duplicado, info = cobro.registrar_paso(
-        caseta.id, voto["placa"], usuario=request.user, confianza=voto["confianza"],
-        texto_leido=mejor["texto_leido"] if mejor["placa"] == voto["placa"] else voto["placa"],
-        categoria=voto["categoria"], ejes=voto["ejes"], pasajeros=voto["pasajeros"],
-    )
-    if duplicado:
-        return _duplicado(responder, paso, lectura)
-    # Evidencia: el frame con las personas cubiertas por su máscara (privacidad); sin personas, el frame tal cual.
-    panel.publicar_paso(paso, vehiculo.get("evidencia") or imagen)  # captura + evento en tiempo real
-    cobro.limpiar_lecturas_viejas()
-    evidencia = vehiculo.get("evidencia")
-    return responder("registrado", f"Registrado: {paso.get_estado_display().lower()}", lectura,
-                     paso=cobro.paso_a_dict(paso, info), votos=voto["votos"],
+    # registrado: el vehículo salió de cuadro o se cumplió el tiempo; el paso se cobró solo.
+    paso, evidencia = r["paso"], r["evidencia"]
+    panel.publicar_paso(paso, evidencia)  # captura + evento en tiempo real
+    return responder("registrado", _mensaje_cobro(paso), lectura, flujo=estado_flujo,
+                     paso=cobro.paso_a_dict(paso, r["info"]), motivo=r["motivo"],
                      captura=("data:image/jpeg;base64," + base64.b64encode(evidencia).decode()) if evidencia else None)
 
 
-def _duplicado(responder, paso, lectura):
+MENSAJE_ETAPA = {
+    "placa": "Buscando placa…",
+    "tipo": "Placa {placa} · detectando tipo",
+    "ejes": "Placa {placa} · contando ejes",
+    "pasajeros": "Placa {placa} · contando pasajeros",
+    "cobro": "Placa {placa} · esperando salida para cobrar",
+}
+
+
+def _mensaje_cobro(paso):
+    if paso.estado == "cobrado":
+        return f"Cobrado {paso.monto:.2f} Bs"
+    if paso.estado == "saldo_insuficiente":
+        return "Alerta: saldo insuficiente"
+    if paso.estado == "no_registrada":
+        return "Alerta: placa no registrada (posible evasión)"
+    return "Registrado: " + paso.get_estado_display().lower()
+
+
+def _duplicado(responder, paso, lectura, estado_flujo=None):
     segundos = max(0, round((timezone.now() - paso.created_at).total_seconds()))
-    return responder("duplicado", f"Ya registrado hace {segundos} s", lectura,
+    return responder("duplicado", f"Ya registrado hace {segundos} s", lectura, flujo=estado_flujo,
                      paso=cobro.paso_a_dict(paso), segundos_desde_ultimo_paso=segundos)
 
 

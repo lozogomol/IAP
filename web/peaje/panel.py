@@ -11,11 +11,11 @@ from django.conf import settings
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
 from django.db import close_old_connections, connection
-from django.db.models import Sum
+from django.db.models import Count, Sum
 from django.utils import timezone
 
 from . import tiempo_real
-from .models import Alerta, Paso
+from .models import CATEGORIAS, Alerta, Paso
 
 log = logging.getLogger(__name__)
 DIAS = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"]
@@ -50,7 +50,17 @@ def kpis():
         "pasos_hoy": hoy.count(),
         "recaudacion_hoy": f"{recaudado:.2f}",
         "alertas_pendientes": Alerta.objects.filter(atendida=False).count(),
+        "por_tipo": por_tipo(hoy),
     }
+
+
+def por_tipo(pasos):
+    """Vehículos de hoy por tipo (M2), en el orden de las categorías; los sin tipo van como "Sin tipo"."""
+    conteo = dict(pasos.order_by().values_list("categoria_detectada").annotate(n=Count("id")))
+    filas = [{"categoria": c, "texto": t, "n": conteo.get(c, 0)} for c, t in CATEGORIAS]
+    if conteo.get(""):
+        filas.append({"categoria": "", "texto": "Sin tipo", "n": conteo[""]})
+    return filas
 
 
 def grafica(dias=7):

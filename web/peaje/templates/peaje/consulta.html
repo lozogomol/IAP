@@ -2,7 +2,7 @@
 {% load iconos %}
 {% block titulo %}Consulta de placas{% endblock %}
 {% block h1 %}Consulta de placas{% endblock %}
-{% block subtitulo %}Escribe una placa o usa una foto{% endblock %}
+{% block subtitulo %}Escribe la placa o usa una foto para ver si pasó{% endblock %}
 {% block contenido %}
 
 <div class="grilla grilla-consulta">
@@ -30,7 +30,6 @@
       <ul id="r-datos" class="lista-datos"></ul>
       <div id="r-sugerencias" class="sugerencias"></div>
       <div id="r-captura" class="captura-consulta"></div>
-      <p id="r-captura-pie" hidden></p>
     </div>
   </section>
 </div>
@@ -41,14 +40,6 @@
 (function () {
   var $ = function (id) { return document.getElementById(id); };
   var ANCHO_MAX = 1280;
-  // Los 4 estados de la API, en palabras simples
-  var TEXTOS = {
-    habilitada: "Registrada y con saldo",
-    saldo_insuficiente: "Registrada, sin saldo suficiente",
-    inactiva: "Registrada, pero desactivada",
-    no_registrada: "No registrada"
-  };
-
   function msg(t) { $("mensaje").textContent = t || ""; }
 
   function fila(etiqueta, valor) {
@@ -62,24 +53,29 @@
   function sinCaptura(texto) {
     var cap = $("r-captura"); cap.innerHTML = "";
     var s = document.createElement("span"); s.textContent = texto; cap.appendChild(s);
-    $("r-captura-pie").textContent = "";
   }
 
+  // Solo lo que importa en la caseta: ¿pasó? cuándo, por dónde, qué vehículo y cuánto se cobró.
   function mostrar(c, lecturaFoto) {
     $("sin-resultado").hidden = true; $("con-resultado").hidden = false;
     $("r-placa").textContent = c.placa || "—";
-    $("r-estado").textContent = TEXTOS[c.estado] || c.estado_texto;
-    $("r-estado").className = "etiqueta e-" + c.estado;
-    $("r-datos").innerHTML = "";
-    fila("¿Está registrada?", c.vehiculo ? "Sí" : "No");
-    if (c.vehiculo) fila("Saldo", "Bs " + c.vehiculo.saldo);
     var u = c.ultimo_paso;
-    fila("¿Ya pasó por el peaje?", u ? "Sí" : "No, nunca");
+    var estado = $("r-estado");
+    if (u) { estado.textContent = "Pasó por el peaje"; estado.className = "etiqueta verde"; }
+    else if (!c.vehiculo) { estado.textContent = "No registrada"; estado.className = "etiqueta roja"; }
+    else { estado.textContent = "Sin pasos"; estado.className = "etiqueta gris"; }
+
+    $("r-datos").innerHTML = "";
+    fila("Registrada", c.vehiculo ? "Sí" : "No");
     if (u) {
-      fila("Último paso", u.fecha + " a las " + u.hora + " · " + u.estado_texto);
-      fila("Categoría detectada", u.categoria_texto || "Desconocida");
-      fila("Ejes", u.ejes != null ? String(u.ejes) : "Sin dato");
-      fila("Pasajeros", u.pasajeros != null ? String(u.pasajeros) : "Sin dato");
+      fila("Fecha", u.fecha);
+      fila("Hora", u.hora);
+      fila("Punto de cobro", u.caseta || "–");
+      fila("Tipo", u.categoria_texto || "Sin tipo");
+      fila("Ejes", u.ejes != null ? String(u.ejes) : "–");
+      fila("Monto", "Bs " + u.monto + " · " + u.estado_texto);
+    } else {
+      fila("Pasos", c.vehiculo ? "No tiene pasos registrados" : "La placa no está registrada y no tiene pasos");
     }
     if (lecturaFoto) fila("Leído en la foto", lecturaFoto);
 
@@ -88,16 +84,15 @@
       var b = document.createElement("button"); b.type = "button"; b.className = "mini-btn";
       b.setAttribute("data-ampliar", u.imagen_url);
       b.setAttribute("data-titulo", c.placa + " · " + u.fecha + " " + u.hora);
-      b.setAttribute("aria-label", "Ampliar captura del último paso");
-      var img = document.createElement("img"); img.src = u.imagen_url; img.alt = "Captura del último paso de " + c.placa;
+      b.setAttribute("aria-label", "Ampliar evidencia del último paso");
+      var img = document.createElement("img"); img.src = u.imagen_url; img.alt = "Evidencia del último paso de " + c.placa;
       b.appendChild(img); cap.appendChild(b);
-      $("r-captura-pie").textContent = "Captura del último paso (" + u.fecha + " " + u.hora + ")";
     } else {
-      sinCaptura(u ? "El último paso no tiene captura" : "Sin pasos registrados");
+      sinCaptura(u ? "El paso no tiene imagen" : "Sin pasos");
     }
 
     var sug = $("r-sugerencias"); sug.innerHTML = "";
-    if (c.sugerencias && c.sugerencias.length) {
+    if (!c.vehiculo && !u && c.sugerencias && c.sugerencias.length) {
       var p = document.createElement("span"); p.className = "tenue pequeno"; p.textContent = "¿Quisiste decir…?";
       sug.appendChild(p);
       c.sugerencias.forEach(function (s) {

@@ -1,5 +1,6 @@
 """Modelos de la base de datos del sistema de peaje IAP."""
 from django.db import models
+from django.utils import timezone
 
 CATEGORIAS = [
     ("moto", "Moto"),
@@ -132,7 +133,7 @@ class LecturaPlaca(models.Model):
     categoria = models.CharField(max_length=10, choices=CATEGORIAS, blank=True)
     ejes = models.PositiveSmallIntegerField(null=True, blank=True)
     pasajeros = models.PositiveSmallIntegerField(null=True, blank=True)  # M4: personas dentro del vehículo
-    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    created_at = models.DateTimeField(default=timezone.now, db_index=True)  # hora del frame
 
     class Meta:
         db_table = "lecturas_placa"
@@ -140,6 +141,35 @@ class LecturaPlaca(models.Model):
 
     def __str__(self):
         return f"{self.placa} · {self.caseta_id} · {self.created_at:%H:%M:%S}"
+
+
+class PasoEnCurso(models.Model):
+    """Vehículo que está pasando ahora por una caseta (máquina de estados del punto de cobro, una fila por caseta).
+
+    La placa se bloquea al confirmarse por votación y no cambia hasta registrar el paso; tipo (M2), ejes (M3) y
+    pasajeros (M4) se acumulan por frame como votos ({valor: cantidad}). Al registrar se reinicia la fila.
+    """
+
+    caseta = models.OneToOneField(Caseta, on_delete=models.CASCADE, primary_key=True, related_name="en_curso")
+    placa = models.CharField(max_length=10, blank=True)  # vacía = esperando placa
+    texto_leido = models.CharField(max_length=20, blank=True)
+    confianza = models.FloatField(null=True, blank=True)
+    bloqueada_at = models.DateTimeField(null=True, blank=True)
+    ultimo_visto_at = models.DateTimeField(null=True, blank=True)
+    ultimo_frame_at = models.DateTimeField(null=True, blank=True)
+    reiniciado_at = models.DateTimeField(null=True, blank=True)  # lecturas anteriores no votan por la placa
+    votos_tipo = models.JSONField(default=dict, blank=True)
+    tipo = models.CharField(max_length=10, choices=CATEGORIAS, blank=True)  # bloqueado por mayoría
+    votos_ejes = models.JSONField(default=dict, blank=True)
+    votos_pasajeros = models.JSONField(default=dict, blank=True)
+    evidencia = models.BinaryField(null=True, blank=True)  # mejor frame de la placa (personas cubiertas)
+    evidencia_confianza = models.FloatField(null=True, blank=True)
+
+    class Meta:
+        db_table = "pasos_en_curso"
+
+    def __str__(self):
+        return f"{self.caseta_id} · {self.placa or 'esperando placa'}"
 
 
 CASETA_PRINCIPAL = "Peaje IAP"

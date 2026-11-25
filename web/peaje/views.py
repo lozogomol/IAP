@@ -196,6 +196,10 @@ def vehiculo_accion(request, pk):
         vehiculo.activo = accion == "activar"
         vehiculo.save(update_fields=["activo"])
         messages.success(request, f"{vehiculo.placa} {'activado' if vehiculo.activo else 'desactivado'}.")
+    elif accion == "eliminar":
+        # Los pasos guardan la placa como texto: el historial se conserva aunque se borre el vehículo.
+        vehiculo.delete()
+        messages.success(request, f"Vehículo {vehiculo.placa} eliminado.")
     else:
         messages.error(request, "Acción no válida.")
     return redirect("vehiculos")

@@ -72,11 +72,11 @@ class DatosInicialesTests(TestCase):
 
     def test_cargados(self):
         self.assertEqual(Vehiculo.objects.count(), 20)
-        self.assertEqual(Tarifa.objects.count(), 10)
+        self.assertEqual(Tarifa.objects.count(), 21)  # 0008: moto 2 ejes + auto/minibus/bus/camion de 2 a 6 ejes
         self.assertEqual(Caseta.objects.count(), 4)  # 3 iniciales + "Peaje IAP" (0004)
         self.assertTrue(Caseta.objects.filter(nombre="Peaje IAP").exists())
         self.assertTrue(Usuario.objects.filter(email_google="lozogomol@gmail.com", rol="admin").exists())
-        self.assertEqual(Tarifa.objects.get(categoria="camion", ejes=6).monto, Decimal("60"))
+        self.assertEqual(Tarifa.objects.get(categoria="camion", ejes=6).monto, Decimal("16"))
         # La migración 0005 deja el historial en 0 y los vehículos sin propietario; usuarios intactos.
         self.assertEqual((Paso.objects.count(), Alerta.objects.count()), (0, 0))
         self.assertFalse(Vehiculo.objects.exclude(propietario="").exists())
@@ -187,9 +187,11 @@ class PaginasProtegidasTests(TestCase):
         u = Usuario.objects.create(email_google="a@x.com", nombre="Ana Operadora", rol="operador")
         entrar(self.client, u)
         r = self.client.get("/vehiculos")
-        for texto in ("Panel", "Caseta", "Consulta", "Vehículos", "Pasos", "Alertas", "Chat", "Estado",
-                      "Ana Operadora", "operador", "Salir", "Peaje IAP"):
+        for texto in ("Panel", "Punto de cobro", "Consulta", "Vehículos", "Pasos", "Alertas", "Asistente", "Estado",
+                      "Ana Operadora", "a@x.com", "Operador", "Salir", "Peaje IAP"):
             self.assertContains(r, texto)
+        self.assertContains(r, 'id="usuario-menu" class="usuario-menu" hidden')  # nombre y correo en el desplegable
+        self.assertNotContains(r, "Administrador")
         for ruta in ("/pasos", "/chat"):
             self.assertContains(r, f'href="{ruta}"')
         for ruta in ("/usuarios", "/admin/"):

@@ -16,10 +16,10 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
-from . import cobro
+from . import cobro, flujo
 from .auth import emitir_jwt
 from .inferencia import InferenciaNoDisponible, interpretar, interpretar_vehiculo
-from .models import Alerta, Caseta, LecturaPlaca, Paso, Usuario, Vehiculo
+from .models import Alerta, Caseta, LecturaPlaca, Paso, PasoEnCurso, Tarifa, Usuario, Vehiculo
 from .tests import VERIFICAR, entrar
 
 INFERIR = "peaje.api.inferir"
@@ -171,39 +171,53 @@ class RegistrarPasoTests(TestCase):
         paso, dup, info = cobro.registrar_paso(self.caseta.id, "3876LBD")
         self.assertFalse(dup)
         self.assertEqual((paso.estado, paso.monto, paso.categoria_detectada, paso.ejes_detectados),
-                         ("cobrado", Decimal("10"), "auto", 2))
+                         ("cobrado", Decimal("4"), "auto", 2))
         self.assertEqual(info["fuente_categoria"], "registro")
-        self.assertEqual(Vehiculo.objects.get(placa="3876LBD").saldo, Decimal("240"))
+        self.assertEqual(Vehiculo.objects.get(placa="3876LBD").saldo, Decimal("246"))
 
     def test_usa_categoria_de_inferencia_si_llega(self):
         paso, _, info = cobro.registrar_paso(self.caseta.id, "3876LBD", categoria="camion", ejes=3)
-        self.assertEqual((paso.monto, info["fuente_categoria"]), (Decimal("30"), "inferencia"))
+        self.assertEqual((paso.monto, info["fuente_categoria"]), (Decimal("10"), "inferencia"))
 
     def test_tarifa_categoria_mas_ejes_detectados(self):
-        self.assertEqual(cobro._tarifa("camion", 3), Decimal("30"))
-        self.assertEqual(cobro._tarifa("camion", None), Decimal("20"))  # sin ejes: la mínima de la categoría
-        self.assertEqual(cobro._tarifa("camion", 9), Decimal("60"))     # sin tarifa propia: la mayor que no supera
-        self.assertEqual(cobro._tarifa("bus", 4), Decimal("35"))
-        self.assertEqual(cobro._tarifa("auto", 3), Decimal("10"))
+        # moto 2, auto 4, minibus 6, bus 8, camion 8 Bs con 2 ejes; +2 Bs por cada eje adicional
+        for categoria, ejes, monto in (("moto", 2, 2), ("auto", 2, 4), ("minibus", 2, 6), ("bus", 2, 8),
+                                       ("camion", 2, 8), ("camion", 3, 10), ("camion", 6, 16), ("bus", 4, 12),
+                                       ("auto", 3, 6), ("minibus", 5, 12)):
+            self.assertEqual(cobro._tarifa(categoria, ejes), Decimal(monto), (categoria, ejes))
+        self.assertEqual(cobro._tarifa("camion", None), Decimal("8"))  # sin dato de M3: mínimo 2 ejes
+        self.assertEqual(cobro._tarifa("camion", 1), Decimal("8"))
         self.assertIsNone(cobro._tarifa("", 2))
+
+    def test_tarifa_sin_fila_usa_base_mas_2_por_eje(self):
+        self.assertEqual(cobro.tarifa_de("camion", 9), (Decimal("22"), 9))  # no hay fila: 8 + 2·7
+        self.assertEqual(cobro._tarifa("moto", 3), Decimal("4"))           # moto solo tiene 2 ejes en la tabla
+        Tarifa.objects.filter(categoria="bus").delete()
+        self.assertEqual(cobro._tarifa("bus", 3), Decimal("10"))            # sin filas: base fija + 2
+
+    def test_tabla_de_tarifas(self):
+        self.assertEqual(Tarifa.objects.count(), 21)
+        self.assertEqual(list(Tarifa.objects.filter(categoria="auto").values_list("ejes", "monto")),
+                         [(e, Decimal(4 + 2 * (e - 2))) for e in range(2, 7)])
+        self.assertEqual(list(Tarifa.objects.filter(categoria="moto").values_list("ejes", "monto")), [(2, Decimal(2))])
 
     def test_guarda_ejes_y_pasajeros_y_cobra_por_ejes(self):
         Vehiculo.objects.filter(placa="3876LBD").update(saldo=Decimal("100"))
         paso, _, info = cobro.registrar_paso(self.caseta.id, "3876LBD", categoria="camion", ejes=4, pasajeros=2)
-        self.assertEqual((paso.monto, paso.ejes_detectados, paso.pasajeros), (Decimal("40"), 4, 2))
+        self.assertEqual((paso.monto, paso.ejes_detectados, paso.pasajeros), (Decimal("12"), 4, 2))
         d = cobro.paso_a_dict(paso, info)
-        self.assertEqual((d["ejes"], d["ejes_tarifa"], d["pasajeros"], d["tarifa"]), (4, 4, 2, "40.00"))
+        self.assertEqual((d["ejes"], d["ejes_tarifa"], d["pasajeros"], d["tarifa"]), (4, 4, 2, "12.00"))
 
     def test_categoria_detectada_sin_ejes_usa_2_ejes(self):
         # 3876LBD está registrado como auto; M2 detecta minibus y M3 aún no existe → tarifa minibus/2 ejes
         paso, _, info = cobro.registrar_paso(self.caseta.id, "3876LBD", categoria="minibus")
         self.assertEqual((paso.estado, paso.monto, paso.categoria_detectada, paso.ejes_detectados),
-                         ("cobrado", Decimal("15"), "minibus", None))
+                         ("cobrado", Decimal("6"), "minibus", None))
         self.assertEqual(info["fuente_categoria"], "inferencia")
         d = cobro.paso_a_dict(paso, info)
         self.assertEqual((d["categoria"], d["categoria_texto"], d["tarifa"], d["ejes"]),
-                         ("minibus", "Minibús", "15.00", None))
-        self.assertEqual(cobro.paso_a_dict(paso)["tarifa"], "15.00")  # también sin info
+                         ("minibus", "Minibús", "6.00", None))
+        self.assertEqual(cobro.paso_a_dict(paso)["tarifa"], "6.00")  # también sin info
 
     def test_no_registrada_conserva_categoria_detectada(self):
         paso, _, info = cobro.registrar_paso(self.caseta.id, "6999ZZZ", categoria="moto")
@@ -232,10 +246,115 @@ class RegistrarPasoTests(TestCase):
         p2, dup, _ = cobro.registrar_paso(self.caseta.id, "3876LBD")
         self.assertTrue(dup)
         self.assertEqual(p1.pk, p2.pk)
-        self.assertEqual(Vehiculo.objects.get(placa="3876LBD").saldo, Decimal("240"))
+        self.assertEqual(Vehiculo.objects.get(placa="3876LBD").saldo, Decimal("246"))
         Paso.objects.filter(pk=p1.pk).update(created_at=timezone.now() - timedelta(seconds=31))
         _, dup, _ = cobro.registrar_paso(self.caseta.id, "3876LBD")
         self.assertFalse(dup)
+
+
+def pasar_vehiculo(client, caseta, lecturas, vehiculo=None, **extra):
+    """Un vehículo completo por la API: frame con su placa (bloquea) y, 3 s sin verlo, frame vacío (sale y cobra)."""
+    url = "/api/v1/pasos/frame"
+    with mock.patch(INFERIR, return_value=(lecturas, 50, vehiculo or SIN_VEHICULO)):
+        primero = client.post(url, {"imagen": _jpeg(), "caseta_id": caseta.id}, **extra)
+    PasoEnCurso.objects.filter(caseta=caseta).update(ultimo_visto_at=timezone.now() - timedelta(seconds=3))
+    with mock.patch(INFERIR, return_value=([], 50, SIN_VEHICULO)):
+        return primero, client.post(url, {"imagen": _jpeg(), "caseta_id": caseta.id}, **extra)
+
+
+class FlujoTests(TestCase):
+    """Máquina de estados del punto de cobro: un vehículo = un paso."""
+
+    def setUp(self):
+        self.caseta = Caseta.objects.first()
+        self.t0 = timezone.now()
+
+    def _f(self, segundos, lecturas=(), vehiculo=None):
+        return flujo.procesar_frame(self.caseta, list(lecturas), vehiculo or SIN_VEHICULO, b"\xff\xd8frame",
+                                    ahora=self.t0 + timedelta(seconds=segundos))
+
+    def _con(self, clase="", ejes=None, pasajeros=None):
+        return {**SIN_VEHICULO, "clase": clase, "caja_vehiculo": [0, 0, 100, 100], "ejes": ejes, "pasajeros": pasajeros}
+
+    def test_placa_bloqueada_no_cambia(self):
+        r = self._f(0, [_lectura("3876LBD", 0.9, categoria="auto")], self._con("auto"))
+        self.assertEqual((r["accion"], r["flujo"]["placa"], r["flujo"]["placa_bloqueada"]), ("en_curso", "3876LBD", True))
+        for t in (0.5, 1, 1.5):  # otra lectura (incluso más confiable) no cambia la placa del paso
+            r = self._f(t, [_lectura("2451KTP", 0.99, categoria="moto")], self._con("moto"))
+            self.assertEqual(r["flujo"]["placa"], "3876LBD")
+        r = self._f(4, [])
+        self.assertEqual((r["accion"], r["paso"].placa_normalizada), ("registrado", "3876LBD"))
+        self.assertFalse(Paso.objects.filter(placa_normalizada="2451KTP").exists())
+
+    def test_votacion_antes_de_bloquear(self):
+        self.assertEqual(self._f(0, [_lectura("3876LBD", 0.6)])["accion"], "esperando_confirmacion")
+        r = self._f(0.5, [_lectura("3876LBD", 0.6)])
+        self.assertEqual((r["accion"], r["flujo"]["placa"]), ("en_curso", "3876LBD"))
+
+    def test_tipo_por_mayoria_y_se_bloquea(self):
+        self._f(0, [_lectura("5630KRT", 0.9, categoria="minibus")], self._con("minibus"))
+        self.assertFalse(self._f(0.5, [_lectura("5630KRT", 0.8, categoria="auto")], self._con("auto"))["flujo"]["tipo_listo"])
+        r = self._f(1, [_lectura("5630KRT", 0.8, categoria="minibus")], self._con("minibus"))
+        self.assertEqual((r["flujo"]["tipo"], r["flujo"]["tipo_listo"], r["flujo"]["etapa"]), ("minibus", True, "ejes"))
+        for t in (1.5, 2, 2.5):  # ya bloqueado: votos posteriores no lo cambian
+            self._f(t, [_lectura("5630KRT", 0.8, categoria="auto")], self._con("auto"))
+        paso = self._f(5, [])["paso"]
+        self.assertEqual((paso.categoria_detectada, paso.monto), ("minibus", Decimal("6")))
+
+    def test_ejes_por_mayoria_y_eje_extra_en_la_tarifa(self):
+        self._f(0, [_lectura("4720MDX", 0.9, categoria="camion", ejes=4)], self._con("camion", 4))
+        self._f(0.5, [_lectura("4720MDX", 0.9, categoria="camion", ejes=3)], self._con("camion", 3))
+        r = self._f(1, [_lectura("4720MDX", 0.9, categoria="camion", ejes=4)], self._con("camion", 4))
+        self.assertEqual((r["flujo"]["ejes"], r["flujo"]["ejes_listo"]), (4, True))
+        paso = self._f(4, [])["paso"]
+        self.assertEqual((paso.ejes_detectados, paso.monto, paso.estado), (4, Decimal("12"), "cobrado"))  # 8 + 2·2
+
+    def test_pasajeros_maximo_estable(self):
+        self._f(0, [_lectura("4471LCH", 0.9, categoria="bus")], self._con("bus", 2, 1))
+        for t, n in ((0.5, 3), (1, 3), (1.5, 2), (1.8, 5)):  # 5 se vio una sola vez: no es estable
+            self._f(t, [], self._con("bus", 2, n))
+        self.assertEqual(self._f(4, [])["paso"].pasajeros, 3)
+
+    def test_registro_automatico_al_salir_de_cuadro(self):
+        self._f(0, [_lectura("3876LBD", 0.9, categoria="auto")], self._con("auto", 2))
+        self.assertEqual(self._f(1, [], self._con("auto", 2))["accion"], "en_curso")
+        self.assertEqual(self._f(2.5, [])["accion"], "en_curso")  # 1,5 s sin verlo: todavía no salió
+        r = self._f(3.1, [])
+        self.assertEqual((r["accion"], r["motivo"]), ("registrado", "salida"))
+        self.assertEqual((r["paso"].estado, r["paso"].monto), ("cobrado", Decimal("4")))
+        self.assertEqual(Vehiculo.objects.get(placa="3876LBD").saldo, Decimal("246"))
+        self.assertEqual(r["evidencia"], b"\xff\xd8frame")  # mejor frame de la placa
+        self.assertFalse(PasoEnCurso.objects.get(caseta=self.caseta).placa)  # listo para el siguiente vehículo
+
+    def test_cobra_a_los_8s_con_datos_completos(self):
+        datos = dict(categoria="camion", ejes=3)
+        self._f(0, [_lectura("2864KPL", 0.9, **datos)], self._con("camion", 3))
+        for t in range(1, 8):
+            self.assertEqual(self._f(t, [_lectura("2864KPL", 0.7, **datos)], self._con("camion", 3))["accion"], "en_curso")
+        r = self._f(8, [_lectura("2864KPL", 0.7, **datos)], self._con("camion", 3))
+        self.assertEqual((r["accion"], r["motivo"], r["paso"].monto), ("registrado", "tiempo", Decimal("10")))
+        # sigue en cuadro: la misma placa ya no se registra otra vez (anti-duplicado 30 s)
+        self.assertEqual(self._f(9, [_lectura("2864KPL", 0.9, **datos)], self._con("camion", 3))["accion"], "duplicado")
+        self.assertEqual(Paso.objects.filter(placa_normalizada="2864KPL").count(), 1)
+
+    def test_sin_datos_completos_no_cobra_a_los_8s(self):
+        self._f(0, [_lectura("2864KPL", 0.9)], self._con())
+        for t in range(1, 9):
+            self.assertEqual(self._f(t, [_lectura("2864KPL", 0.7)], self._con())["accion"], "en_curso")
+
+    def test_alertas_no_registrada_y_saldo_insuficiente(self):
+        self._f(0, [_lectura("9999ZZZ", 0.9, categoria="auto")], self._con("auto"))
+        p1 = self._f(3, [])["paso"]
+        self._f(4, [_lectura("1987FHK", 0.9, categoria="auto")], self._con("auto"))
+        p2 = self._f(7, [])["paso"]
+        self.assertEqual((p1.estado, p2.estado), ("no_registrada", "saldo_insuficiente"))
+        self.assertTrue(Alerta.objects.filter(paso=p1, tipo="placa_no_registrada").exists())
+        self.assertTrue(Alerta.objects.filter(paso=p2, tipo="saldo_insuficiente").exists())
+
+    def test_camara_detenida_registra_el_pendiente(self):
+        self._f(0, [_lectura("3876LBD", 0.9)], self._con())
+        r = self._f(20, [_lectura("2451KTP", 0.9)], self._con())  # vuelve a encender con otro vehículo
+        self.assertEqual((r["accion"], r["paso"].placa_normalizada), ("registrado", "3876LBD"))
 
 
 @override_settings(MEDIA_ROOT=tempfile.mkdtemp(prefix="iap-test-"), CLOUDINARY_URL="", PUSHER_APP_ID="")
@@ -252,6 +371,9 @@ class ApiFrameTests(TestCase):
         with mock.patch(INFERIR, return_value=(lecturas, 120, vehiculo or SIN_VEHICULO)):
             return self.client.post("/api/v1/pasos/frame", {"imagen": _jpeg(), "caseta_id": self.caseta.id},
                                     HTTP_X_CSRFTOKEN=self.csrf)
+
+    def _pasar(self, lecturas, vehiculo=None):
+        return pasar_vehiculo(self.client, self.caseta, lecturas, vehiculo, HTTP_X_CSRFTOKEN=self.csrf)
 
     def test_sin_sesion_401(self):
         r = self.client_class().post("/api/v1/pasos/frame", {"caseta_id": self.caseta.id})
@@ -277,6 +399,7 @@ class ApiFrameTests(TestCase):
                     "cajas_placas": [[50, 60, 90, 80]]}
         d = self._frame([], vehiculo).json()
         self.assertEqual((d["accion"], d["mensaje"], d["paso"]), ("sin_placa", "Buscando placa…", None))
+        self.assertEqual((d["flujo"]["etapa"], d["flujo"]["placa_bloqueada"]), ("placa", False))
         lec = d["lectura"]
         self.assertEqual((lec["placa"], lec["categoria"], lec["confianza_categoria"], lec["caja_vehiculo"],
                           lec["cajas_placas"]), (None, "camion", 0.91, [10, 20, 300, 400], [[50, 60, 90, 80]]))
@@ -295,13 +418,16 @@ class ApiFrameTests(TestCase):
         vehiculo = {**SIN_VEHICULO, "clase": "camion", "ejes": 3, "pasajeros": 1, "llantas_detectadas": 4,
                     "cajas_llantas": [[1, 2, 3, 4]], "latencias": {"m1": 1, "m2": 2, "m3": 3, "m4": 4},
                     "evidencia": evidencia}
-        d = self._frame([_lectura("3876LBD", 0.9, categoria="camion", ejes=3)], vehiculo).json()
-        self.assertEqual(d["accion"], "registrado")
-        lec, p = d["lectura"], d["paso"]
+        primero, ultimo = self._pasar([_lectura("3876LBD", 0.9, categoria="camion", ejes=3)], vehiculo)
+        lec = primero.json()["lectura"]
+        self.assertEqual(primero.json()["accion"], "en_curso")
         self.assertEqual((lec["ejes"], lec["pasajeros"], lec["llantas_detectadas"], lec["cajas_llantas"]),
                          (3, 1, 4, [[1, 2, 3, 4]]))
         self.assertEqual(lec["latencia_modelos_ms"], {"m1": 1, "m2": 2, "m3": 3, "m4": 4})
-        self.assertEqual((p["categoria"], p["ejes"], p["pasajeros"], p["tarifa"]), ("camion", 3, 1, "30.00"))
+        d = ultimo.json()
+        self.assertEqual((d["accion"], d["motivo"], d["mensaje"]), ("registrado", "salida", "Cobrado 10.00 Bs"))
+        p = d["paso"]
+        self.assertEqual((p["categoria"], p["ejes"], p["pasajeros"], p["tarifa"]), ("camion", 3, 1, "10.00"))
         self.assertEqual(base64.b64decode(d["captura"].split(",", 1)[1]), evidencia)
         paso = Paso.objects.get(pk=p["id"])
         self.assertEqual((paso.ejes_detectados, paso.pasajeros), (3, 1))
@@ -309,31 +435,40 @@ class ApiFrameTests(TestCase):
             self.assertEqual(f.read(), evidencia)  # nunca el frame original con rostros
 
     def test_sin_personas_guarda_el_frame(self):
-        d = self._frame([_lectura("3876LBD", 0.9)]).json()
-        self.assertIsNone(d["captura"])
+        d = self._pasar([_lectura("3876LBD", 0.9)])[1].json()
         paso = Paso.objects.get(pk=d["paso"]["id"])
         with open(Path(settings.MEDIA_ROOT) / paso.imagen_url.removeprefix("/"), "rb") as f:
             self.assertEqual(f.read(), b"\xff\xd8\xff\xe0falso")
 
-    def test_esperando_confirmacion_y_registrado(self):
+    def test_votacion_bloqueo_y_cobro_automatico(self):
         d = self._frame([_lectura("3876LBD", 0.7, caja=[1, 2, 3, 4])]).json()
         self.assertEqual((d["accion"], d["mensaje"], d["votos"], d["votos_necesarios"], d["paso"]),
                          ("esperando_confirmacion", "Leyendo 3876LBD (confirmando 1/2)", 1, 2, None))
         self.assertEqual((d["lectura"]["placa"], d["lectura"]["confianza"], d["lectura"]["caja_placa"]),
                          ("3876LBD", 0.7, [1, 2, 3, 4]))
-        self.assertFalse(Paso.objects.filter(placa_normalizada="3876LBD").exists())
         d = self._frame([_lectura("3876LBD", 0.75)]).json()
-        self.assertEqual((d["accion"], d["mensaje"]), ("registrado", "Registrado: cobrado"))
+        self.assertEqual((d["accion"], d["flujo"]["placa"], d["flujo"]["placa_bloqueada"], d["flujo"]["etapa"]),
+                         ("en_curso", "3876LBD", True, "tipo"))
+        self.assertEqual(d["mensaje"], "Placa 3876LBD · detectando tipo")
+        self.assertFalse(Paso.objects.filter(placa_normalizada="3876LBD").exists())  # nada manual: espera la salida
+        PasoEnCurso.objects.filter(caseta=self.caseta).update(ultimo_visto_at=timezone.now() - timedelta(seconds=3))
+        d = self._frame([]).json()
+        self.assertEqual((d["accion"], d["mensaje"]), ("registrado", "Cobrado 4.00 Bs"))
         p = d["paso"]
-        self.assertEqual((p["placa"], p["estado"], p["tarifa"], p["categoria"], p["ejes"]),
-                         ("3876LBD", "cobrado", "10.00", "auto", 2))
-        self.assertIn("latencia_ms", d["lectura"])
+        self.assertEqual((p["placa"], p["estado"], p["tarifa"], p["categoria"], p["ejes"], p["fuente_categoria"]),
+                         ("3876LBD", "cobrado", "4.00", "auto", 2, "registro"))
+        self.assertEqual(d["flujo"]["etapa"], "registrado")
 
-    def test_una_lectura_confiable_registra_al_instante(self):
-        self.assertEqual(self._frame([_lectura("3876LBD", 0.80)]).json()["accion"], "registrado")
+    def test_una_lectura_confiable_bloquea_al_instante(self):
+        d = self._frame([_lectura("3876LBD", 0.80)]).json()
+        self.assertEqual((d["accion"], d["flujo"]["placa_bloqueada"]), ("en_curso", True))
+
+    def test_alerta_en_el_mensaje(self):
+        d = self._pasar([_lectura("9999ZZZ", 0.9)])[1].json()
+        self.assertEqual(d["mensaje"], "Alerta: placa no registrada (posible evasión)")
 
     def test_duplicado_no_cobra_y_dice_hace_cuanto(self):
-        self._frame([_lectura("3876LBD", 0.9)])
+        self._pasar([_lectura("3876LBD", 0.9)])
         p = Paso.objects.get(placa_normalizada="3876LBD", caseta=self.caseta)
         Paso.objects.filter(pk=p.pk).update(created_at=timezone.now() - timedelta(seconds=25))
         d = self._frame([_lectura("3876LBD", 0.9)]).json()
@@ -344,13 +479,13 @@ class ApiFrameTests(TestCase):
         self.assertEqual(self._frame([_lectura("3876LBD", 0.5)]).json()["accion"], "duplicado")
         self.assertEqual(Paso.objects.filter(placa_normalizada="3876LBD", caseta=self.caseta,
                                              usuario=self.admin).count(), 1)
-        self.assertEqual(Vehiculo.objects.get(placa="3876LBD").saldo, Decimal("240"))
+        self.assertEqual(Vehiculo.objects.get(placa="3876LBD").saldo, Decimal("246"))
 
     def test_registra_de_nuevo_pasados_30s(self):
-        self._frame([_lectura("3876LBD", 0.9)])
+        self._pasar([_lectura("3876LBD", 0.9)])
         Paso.objects.update(created_at=timezone.now() - timedelta(seconds=31))
         LecturaPlaca.objects.all().delete()
-        self.assertEqual(self._frame([_lectura("3876LBD", 0.9)]).json()["accion"], "registrado")
+        self.assertEqual(self._pasar([_lectura("3876LBD", 0.9)])[1].json()["accion"], "registrado")
 
     def test_cada_frame_queda_en_el_log(self):
         with self.assertLogs("peaje.caseta", level="INFO") as logs:
@@ -374,9 +509,12 @@ class ApiFrameTests(TestCase):
 
     def test_registra_con_categoria_detectada(self):
         self._frame([_lectura("3876LBD", 0.7, categoria="camion")])
-        p = self._frame([_lectura("3876LBD", 0.75, categoria="camion")]).json()["paso"]
+        d = self._frame([_lectura("3876LBD", 0.75, categoria="camion")]).json()
+        self.assertEqual((d["flujo"]["tipo"], d["flujo"]["tipo_listo"]), ("camion", True))
+        PasoEnCurso.objects.filter(caseta=self.caseta).update(ultimo_visto_at=timezone.now() - timedelta(seconds=3))
+        p = self._frame([]).json()["paso"]
         self.assertEqual((p["categoria"], p["categoria_texto"], p["ejes"], p["tarifa"], p["fuente_categoria"]),
-                         ("camion", "Camión", None, "20.00", "inferencia"))
+                         ("camion", "Camión", None, "8.00", "inferencia"))
 
     def test_inferencia_caida_error(self):
         with self.assertLogs("peaje.caseta", level="INFO") as logs:
@@ -388,9 +526,9 @@ class ApiFrameTests(TestCase):
         self.assertIn("accion=error", logs.output[0])
 
     def test_jwt_tambien_funciona(self):
-        with mock.patch(INFERIR, return_value=([_lectura("2451KTP", 0.95)], 50, SIN_VEHICULO)):
-            r = self.client_class().post("/api/v1/pasos/frame", {"imagen": _jpeg(), "caseta_id": self.caseta.id},
-                                         HTTP_AUTHORIZATION=f"Bearer {emitir_jwt(self.admin)}")
+        cliente = self.client_class()
+        _, r = pasar_vehiculo(cliente, self.caseta, [_lectura("2451KTP", 0.95)],
+                              HTTP_AUTHORIZATION=f"Bearer {emitir_jwt(self.admin)}")
         self.assertEqual(r.json()["paso"]["estado"], "cobrado")
 
 

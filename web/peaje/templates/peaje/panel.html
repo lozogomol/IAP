@@ -6,19 +6,23 @@
 {% block acciones %}<span id="modo" class="estado-vivo consulta">Automático</span>{% endblock %}
 {% block contenido %}
 
-<section class="grilla grilla-3 separado" aria-label="Indicadores de hoy">
-  <div class="tarjeta galaxia kpi">
+<section class="grilla grilla-kpi separado" aria-label="Datos generales de hoy">
+  <div class="galaxia kpi"><span class="estrellas" aria-hidden="true"></span>
     <div class="kpi-cab"><span class="kpi-etiqueta">Pasos de hoy</span>{% icono "auto" %}</div>
     <span class="kpi-valor" id="k-pasos">{{ datos.kpis.pasos_hoy }}</span>
   </div>
-  <div class="tarjeta galaxia kpi">
+  <div class="galaxia kpi"><span class="estrellas" aria-hidden="true"></span>
     <div class="kpi-cab"><span class="kpi-etiqueta">Recaudación de hoy</span>{% icono "billetera" %}</div>
     <span class="kpi-valor"><small>Bs</small><span id="k-recaudacion">{{ datos.kpis.recaudacion_hoy }}</span></span>
   </div>
-  <a class="tarjeta galaxia kpi" href="/alertas">
+  <a class="galaxia kpi" href="/alertas"><span class="estrellas" aria-hidden="true"></span>
     <div class="kpi-cab"><span class="kpi-etiqueta">Alertas sin atender</span>{% icono "campana" %}</div>
     <span class="kpi-valor" id="k-alertas">{{ datos.kpis.alertas_pendientes }}</span>
   </a>
+  <div class="galaxia kpi"><span class="estrellas" aria-hidden="true"></span>
+    <div class="kpi-cab"><span class="kpi-etiqueta">Vehículos por tipo</span>{% icono "lista" %}</div>
+    <ul class="kpi-tipos" id="k-tipos" aria-label="Vehículos de hoy por tipo"></ul>
+  </div>
 </section>
 
 <div class="grilla grilla-panel">
@@ -95,7 +99,19 @@
     $("sin-pasos").hidden = true;
   }
 
+  function pintarTipos(filas) {
+    var ul = $("k-tipos"), max = 1; ul.innerHTML = "";
+    (filas || []).forEach(function (f) { max = Math.max(max, f.n); });
+    (filas || []).forEach(function (f) {
+      var li = el("li"), barra = el("span", "barrita"), i = el("i");
+      i.style.width = Math.round(f.n * 100 / max) + "%"; barra.appendChild(i);
+      li.appendChild(el("span", null, f.texto)); li.appendChild(barra); li.appendChild(el("b", null, f.n));
+      ul.appendChild(li);
+    });
+  }
+
   function pintarKpis(k) {
+    pintarTipos(k.por_tipo);
     $("k-pasos").textContent = k.pasos_hoy;
     $("k-recaudacion").textContent = k.recaudacion_hoy;
     $("k-alertas").textContent = k.alertas_pendientes;
@@ -112,11 +128,11 @@
     }
     grafica = new Chart($("grafica"), {
       type: "bar",
-      data: { labels: g.etiquetas, datasets: [{ label: "Pasos", data: g.valores, backgroundColor: "#3b6cf5",
-              hoverBackgroundColor: "#2f56c9", borderRadius: 6, borderSkipped: false, maxBarThickness: 48 }] },
+      data: { labels: g.etiquetas, datasets: [{ label: "Pasos", data: g.valores, backgroundColor: "#2b4fd8",
+              hoverBackgroundColor: "#0a1430", borderRadius: 0, borderSkipped: false, maxBarThickness: 48 }] },
       options: {
         responsive: true, maintainAspectRatio: false, animation: reducido ? false : { duration: 400 },
-        plugins: { legend: { display: false }, tooltip: { cornerRadius: 8, backgroundColor: "#0b1230", padding: 10, titleFont: { family: "Inter" }, bodyFont: { family: "Inter" } } },
+        plugins: { legend: { display: false }, tooltip: { cornerRadius: 0, backgroundColor: "#0a1430", padding: 10, titleFont: { family: "Inter" }, bodyFont: { family: "Inter" } } },
         scales: {
           x: { grid: { display: false }, ticks: { color: "#64748b", font: { family: "Inter" } } },
           y: { beginAtZero: true, ticks: { precision: 0, color: "#64748b", font: { family: "Inter" } },
@@ -150,6 +166,7 @@
   }
 
   pintarLista(datos.pasos);
+  pintarTipos(datos.kpis.por_tipo);
   pintarGrafica(datos.grafica);
   if (window.IAP && IAP.tiempoReal) {
     $("modo").textContent = "En vivo"; $("modo").classList.remove("consulta");

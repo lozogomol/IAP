@@ -18,15 +18,17 @@ CERO = Decimal("0")
 
 # --- Votación entre frames ----------------------------------------------------------------------
 
-def votar(caseta, ahora=None):
+def votar(caseta, ahora=None, desde=None):
     """Placa ganadora entre las lecturas de la caseta de los últimos 4 s, o None si aún no hay consenso.
 
-    Gana la más repetida; vale si tiene >= 2 lecturas o alguna lectura con confianza >= 0.80.
+    Gana la más repetida; vale si tiene >= 2 lecturas o alguna lectura con confianza >= 0.80. `desde`: ignora las
+    lecturas anteriores (las del vehículo que ya se registró).
     Devuelve {"placa", "votos", "confianza", "categoria", "ejes", "pasajeros"}.
     """
     ahora = ahora or timezone.now()
+    inicio = ahora - VENTANA_VOTO if desde is None else max(ahora - VENTANA_VOTO, desde)
     grupos = defaultdict(list)
-    for l in LecturaPlaca.objects.filter(caseta=caseta, created_at__gte=ahora - VENTANA_VOTO):
+    for l in LecturaPlaca.objects.filter(caseta=caseta, created_at__gte=inicio):
         grupos[l.placa].append(l)
     if not grupos:
         return None
@@ -69,27 +71,34 @@ def limpiar_lecturas_viejas():
 
 # --- Registro del paso ---------------------------------------------------------------------------
 
-def tarifa_de(categoria, ejes):
-    """Tarifa (objeto) de la categoría con los ejes detectados.
+# Tarifa base (2 ejes) por categoría y recargo por eje adicional: respaldo si falta la fila en la tabla `tarifas`.
+TARIFA_BASE = {"moto": Decimal("2"), "auto": Decimal("4"), "minibus": Decimal("6"), "bus": Decimal("8"),
+               "camion": Decimal("8")}
+EXTRA_POR_EJE = Decimal("2")
+EJES_MIN = 2
 
-    Sin ejes (M3 no los dio): la de menos ejes de esa categoría. Con ejes que no tienen tarifa propia: la mayor de
-    esa categoría que no supere los ejes detectados (y si todas los superan, la mínima)."""
+
+def tarifa_de(categoria, ejes):
+    """(monto, ejes_cobrados) de la categoría con los ejes detectados, o None si no hay categoría con tarifa.
+
+    Los ejes se cuentan con mínimo 2 (sin dato de M3 = 2 ejes). Usa la fila de la tabla `tarifas`; si esa
+    combinación no existe, base de la categoría (fila de 2 ejes) + 2 Bs por cada eje adicional."""
     if not categoria:
         return None
-    tarifas = Tarifa.objects.filter(categoria=categoria).order_by("ejes")
-    if ejes:
-        exacta = tarifas.filter(ejes=ejes).first()
-        if exacta:
-            return exacta
-        menor = tarifas.filter(ejes__lt=ejes).order_by("-ejes").first()
-        if menor:
-            return menor
-    return tarifas.first()
+    ejes = max(EJES_MIN, ejes or EJES_MIN)
+    exacta = Tarifa.objects.filter(categoria=categoria, ejes=ejes).first()
+    if exacta:
+        return exacta.monto, ejes
+    fila_base = Tarifa.objects.filter(categoria=categoria, ejes=EJES_MIN).first()
+    base = fila_base.monto if fila_base else TARIFA_BASE.get(categoria)
+    if base is None:
+        return None
+    return base + EXTRA_POR_EJE * (ejes - EJES_MIN), ejes
 
 
 def _tarifa(categoria, ejes):
     t = tarifa_de(categoria, ejes)
-    return t.monto if t else None
+    return t[0] if t else None
 
 
 def paso_reciente(caseta, placa, ahora=None):
@@ -99,16 +108,16 @@ def paso_reciente(caseta, placa, ahora=None):
 
 
 def registrar_paso(caseta_id, placa, usuario=None, confianza=None, texto_leido=None, categoria="", ejes=None,
-                   pasajeros=None):
+                   pasajeros=None, ahora=None):
     """Registra el paso y cobra. Devuelve (paso, duplicado, info).
 
-    Tarifa = categoría detectada (M2) + ejes detectados (M3); si los ejes no llegaron, la mínima de esa categoría.
+    Tarifa = categoría detectada (M2) + ejes detectados (M3, mínimo 2); ver tarifa_de.
     Si no se detectó categoría, la del vehículo registrado; si no está registrado ni se detectó, "desconocida" y
     monto 0. Los ejes y pasajeros que no se detectaron quedan en null en el paso: nunca se inventan.
     """
     with transaction.atomic():
         caseta = Caseta.objects.select_for_update().get(pk=caseta_id)  # serializa los pasos de la caseta
-        previo = paso_reciente(caseta, placa)
+        previo = paso_reciente(caseta, placa, ahora)
         if previo:
             return previo, True, {"fuente_categoria": None}
 
@@ -144,7 +153,7 @@ def registrar_paso(caseta_id, placa, usuario=None, confianza=None, texto_leido=N
         if alerta:
             Alerta.objects.create(paso=paso, tipo=alerta)
     t = tarifa_de(categoria, ejes)
-    return paso, False, {"fuente_categoria": fuente, "tarifa": monto_tarifa, "ejes_tarifa": t.ejes if t else None,
+    return paso, False, {"fuente_categoria": fuente, "tarifa": monto_tarifa, "ejes_tarifa": t[1] if t else None,
                          "nota": nota,
                          "saldo": vehiculo.saldo if vehiculo else None}
 
@@ -178,7 +187,7 @@ def paso_a_dict(paso, info=None):
 
 def _ejes_tarifa(paso):
     t = tarifa_de(paso.categoria_detectada, paso.ejes_detectados)
-    return t.ejes if t else None
+    return t[1] if t else None
 
 
 # --- Consulta ------------------------------------------------------------------------------------
@@ -214,7 +223,8 @@ def consultar_placa(texto):
             "saldo": str(vehiculo.saldo), "activo": vehiculo.activo,
         }
     datos["estado_texto"] = ESTADOS_CONSULTA[datos["estado"]]
-    ultimo = Paso.objects.filter(placa_normalizada=placa).order_by("-created_at").first() if placa else None
+    ultimo = (Paso.objects.select_related("caseta").filter(placa_normalizada=placa).order_by("-created_at").first()
+              if placa else None)
     datos["ultimo_paso"] = None
     if ultimo:
         local = timezone.localtime(ultimo.created_at)
@@ -226,5 +236,6 @@ def consultar_placa(texto):
             "categoria_texto": ultimo.get_categoria_detectada_display() or None,
             "ejes": ultimo.ejes_detectados, "pasajeros": ultimo.pasajeros,
             "imagen_url": ultimo.imagen_url or None,
+            "caseta": ultimo.caseta.nombre,
         }
     return datos

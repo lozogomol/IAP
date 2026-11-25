@@ -2,7 +2,7 @@
 {% load iconos %}
 {% block titulo %}Vehículos registrados{% endblock %}
 {% block h1 %}Vehículos registrados{% endblock %}
-{% block subtitulo %}Registro, saldo y estado de cada placa{% endblock %}
+{% block subtitulo %}Placa, saldo y estado de cada vehículo{% endblock %}
 {% block acciones %}
   <form class="filtros" method="get" action="/vehiculos" role="search">
     <label for="q" class="visualmente-oculto">Placa</label>
@@ -86,6 +86,11 @@
                 {% else %}
                 <input type="hidden" name="accion" value="activar"><button class="boton chico primario" type="submit">{% icono "power" %}Activar</button>
                 {% endif %}
+              </form>
+              <form method="post" action="/vehiculos/{{ v.id }}" data-confirmar="Sus pasos se conservan en el historial."
+                    data-confirmar-titulo="¿Eliminar {{ v.placa }}?" data-confirmar-boton="Eliminar">{% csrf_token %}
+                <input type="hidden" name="accion" value="eliminar">
+                <button class="boton chico" type="submit">{% icono "cerrar" %}Eliminar</button>
               </form>
             </div>
           </td>

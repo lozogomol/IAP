@@ -1,5 +1,6 @@
 """API v1. Autenticación: JWT (app móvil) o sesión web + CSRF (modo caseta y consulta en el navegador)."""
 import base64
+import json
 import logging
 import time
 
@@ -7,11 +8,12 @@ from django.conf import settings
 from drf_spectacular.utils import OpenApiParameter, extend_schema, inline_serializer
 from rest_framework import serializers, status
 from rest_framework.decorators import api_view, parser_classes
-from rest_framework.parsers import FormParser, MultiPartParser
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
 
 from . import cobro, flujo, panel
 from .inferencia import InferenciaNoDisponible, inferir
+from .servicios import agente
 from .models import Caseta
 
 log = logging.getLogger("peaje.caseta")
@@ -190,3 +192,56 @@ def placa_leer(request):
         datos["consulta"] = cobro.consultar_placa(lecturas[0]["placa"])
     datos["latencia_ms"] = _ms(t0)
     return Response(datos)
+
+
+_turnos = inline_serializer("TurnoChat", fields={
+    "rol": serializers.ChoiceField(choices=["usuario", "asistente"]), "texto": serializers.CharField()},
+    many=True, required=False)
+
+
+@extend_schema(
+    summary="Asistente: pregunta en lenguaje natural sobre una placa (texto y/o foto)",
+    description=(
+        "Agente conversacional con Gemini (function calling) y, si no hay clave o la API falla, un agente por reglas "
+        "con las mismas herramientas: `consultar_placa`, `historial_placa` y `leer_placa_imagen` (inferencia M1 sobre "
+        "la imagen adjunta). Las respuestas salen solo de la base de datos del peaje; nunca se inventan datos. "
+        "Entrada: JSON `{mensaje, historial?}` o multipart con `mensaje`, `historial` (JSON) e `imagen`. "
+        "`historial`: lista de `{rol: usuario|asistente, texto}` (se usan los últimos 10). "
+        "Respuesta: `respuesta` (texto), `estado` (`registrada_con_paso` | `registrada_sin_paso` | "
+        "`identificada_no_registrada` | `no_existe` | `sin_lectura` | `sin_imagen` | `inferencia_no_disponible` | "
+        "`ayuda`), `placa`, `sugerencias` (¿Quisiste decir…?), `datos` (lo que devolvió la herramienta, con "
+        "`ultimo_paso` e `imagen_url` si existe) y `motor` (`gemini` | `reglas`)."
+    ),
+    request={
+        "application/json": inline_serializer("ChatEntrada", fields={
+            "mensaje": serializers.CharField(required=False), "historial": _turnos}),
+        "multipart/form-data": inline_serializer("ChatEntradaFoto", fields={
+            "mensaje": serializers.CharField(required=False), "historial": serializers.CharField(required=False),
+            "imagen": serializers.ImageField(required=False)}),
+    },
+    responses={200: inline_serializer("ChatRespuesta", fields={
+        "respuesta": serializers.CharField(), "estado": serializers.CharField(),
+        "placa": serializers.CharField(allow_null=True), "sugerencias": serializers.ListField(child=serializers.CharField()),
+        "datos": serializers.DictField(allow_null=True), "motor": serializers.CharField()}), 400: _respuesta},
+)
+@api_view(["POST"])
+@parser_classes([JSONParser, MultiPartParser, FormParser])
+def agente_chat(request):
+    mensaje = str(request.data.get("mensaje") or "").strip()[:1000]
+    historial = request.data.get("historial") or []
+    if isinstance(historial, str):
+        try:
+            historial = json.loads(historial)
+        except ValueError:
+            historial = []
+    if not isinstance(historial, list):
+        historial = []
+    historial = [t for t in historial if isinstance(t, dict)]
+    imagen = None
+    if request.FILES.get("imagen") is not None:
+        imagen, error = _imagen(request)
+        if error:
+            return error
+    if not mensaje and imagen is None:
+        return Response({"detalle": "Escribe un mensaje o adjunta una imagen."}, status=status.HTTP_400_BAD_REQUEST)
+    return Response(agente.responder(mensaje, historial, imagen))

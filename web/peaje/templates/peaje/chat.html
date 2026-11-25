@@ -2,12 +2,206 @@
 {% load iconos %}
 {% block titulo %}Asistente IA{% endblock %}
 {% block h1 %}Asistente IA{% endblock %}
-{% block subtitulo %}Preguntas en lenguaje natural sobre el peaje{% endblock %}
+{% block subtitulo %}Pregunta por una placa o envía una foto{% endblock %}
 {% block contenido %}
-<section class="tarjeta chat" aria-label="Conversación" aria-live="polite">
-  <div class="mensaje">
-    <span class="avatar" aria-hidden="true">{% icono "bot" %}</span>
-    <p class="burbuja">{{ texto }}</p>
+<div class="asistente">
+  <section id="chat" class="chat" aria-label="Conversación" aria-live="polite">
+    <div class="mensaje">
+      <span class="avatar" aria-hidden="true">{% icono "bot" %}</span>
+      <div class="burbuja">
+        <p>Hola. Consulto placas en el registro del peaje: si está registrada, cuándo pasó y cuánto se cobró.</p>
+        <p class="ejemplos">Prueba con:
+          <button type="button" class="boton chico ejemplo">¿Pasó la placa 1234ABC?</button>
+          <button type="button" class="boton chico ejemplo">Historial de 2451KTP</button>
+          <span class="tenue">o envía una foto de una placa.</span></p>
+      </div>
+    </div>
+  </section>
+
+  <div id="escribiendo" class="mensaje escribiendo" hidden aria-hidden="true">
+    <span class="avatar">{% icono "bot" %}</span>
+    <div class="burbuja"><span class="puntos"><i></i><i></i><i></i></span><span class="visualmente-oculto">escribiendo…</span></div>
   </div>
-</section>
+
+  <form id="form-chat" class="compositor" autocomplete="off">
+    <div id="vista-adjunto" class="vista-adjunto" hidden>
+      <img id="vista-img" alt="Imagen adjunta">
+      <span class="tenue pequeno" id="vista-nombre"></span>
+      <button type="button" id="quitar-adjunto" class="boton chico">{% icono "cerrar" %}Quitar</button>
+    </div>
+    <div class="compositor-fila">
+      <label class="boton icono" for="adjunto" title="Adjuntar imagen">{% icono "imagen" %}<span class="visualmente-oculto">Adjuntar imagen</span></label>
+      <input id="adjunto" class="visualmente-oculto" type="file" accept="image/*">
+      <label class="boton icono solo-tactil" for="foto" title="Tomar foto">{% icono "camara" %}<span class="visualmente-oculto">Tomar foto</span></label>
+      <input id="foto" class="visualmente-oculto" type="file" accept="image/*" capture="environment">
+      <label for="mensaje" class="visualmente-oculto">Mensaje</label>
+      <textarea id="mensaje" name="mensaje" rows="1" maxlength="1000" placeholder="Escribe una placa o una pregunta…" enterkeyhint="send"></textarea>
+      <button id="enviar" class="boton primario" type="submit">{% icono "flecha" %}<span class="texto-enviar">Enviar</span></button>
+    </div>
+  </form>
+</div>
+<template id="ico-bot">{% icono "bot" %}</template>
+<template id="ico-persona">{% icono "persona" %}</template>
+{% csrf_token %}
+{% endblock %}
+{% block scripts %}
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var chat = $("chat"), form = $("form-chat"), campo = $("mensaje"), btn = $("enviar");
+  var historial = [], adjunto = null, ocupado = false;
+
+  var ESTADOS = {
+    registrada_con_paso: ["verde", "Registrada · pasó por el peaje"],
+    registrada_sin_paso: ["", "Registrada · sin pasos"],
+    identificada_no_registrada: ["roja", "No registrada · posible evasión"],
+    no_existe: ["ambar", "Sin registros"],
+    sin_lectura: ["ambar", "Sin placa legible"],
+    inferencia_no_disponible: ["roja", "Lectura no disponible"]
+  };
+
+  function el(tag, cls, texto) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (texto != null) e.textContent = texto;
+    return e;
+  }
+
+  function bajar() { window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" }); }
+
+  function mensaje(rol, texto, imagenUrl) {
+    var m = el("div", "mensaje" + (rol === "usuario" ? " usuario-msg" : ""));
+    var av = el("span", "avatar"); av.setAttribute("aria-hidden", "true");
+    av.appendChild($(rol === "usuario" ? "ico-persona" : "ico-bot").content.cloneNode(true));
+    var b = el("div", "burbuja");
+    if (imagenUrl) { var img = el("img", "burbuja-img"); img.src = imagenUrl; img.alt = "Imagen enviada"; b.appendChild(img); }
+    if (texto) b.appendChild(el("p", null, texto));
+    m.appendChild(av); m.appendChild(b);
+    chat.appendChild(m);
+    bajar();
+    return b;
+  }
+
+  function fila(ul, k, v) {
+    if (v == null || v === "") return;
+    var li = el("li"); li.appendChild(el("span", null, k)); li.appendChild(el("b", null, String(v))); ul.appendChild(li);
+  }
+
+  // Tarjeta con el estado en color, los datos del último paso y su captura (si existe).
+  function tarjeta(burbuja, d) {
+    var info = ESTADOS[d.estado];
+    if (!info) return;
+    var t = el("div", "tarjeta-estado");
+    var cab = el("div", "tarjeta-estado-cab");
+    if (d.placa) cab.appendChild(el("span", "placa", d.placa));
+    cab.appendChild(el("span", "etiqueta " + info[0], info[1]));
+    t.appendChild(cab);
+    var up = d.datos && d.datos.ultimo_paso;
+    if (up) {
+      var ul = el("ul", "lista-datos");
+      fila(ul, "Fecha", up.fecha + " " + up.hora);
+      fila(ul, "Punto de cobro", up.punto_de_cobro);
+      fila(ul, "Tipo", up.tipo);
+      fila(ul, "Ejes", up.ejes);
+      fila(ul, "Tarifa", up.tarifa_bs != null ? up.tarifa_bs + " Bs" : "–");
+      fila(ul, "Resultado", up.resultado);
+      t.appendChild(ul);
+      if (up.imagen_url) {
+        var bt = el("button", "captura-chat"); bt.type = "button";
+        bt.setAttribute("data-ampliar", up.imagen_url);
+        bt.setAttribute("data-titulo", (d.placa || "") + " · " + up.fecha + " " + up.hora);
+        bt.setAttribute("aria-label", "Ampliar la captura del último paso");
+        var img = el("img"); img.src = up.imagen_url; img.alt = "Captura del último paso de " + (d.placa || "la placa");
+        bt.appendChild(img); t.appendChild(bt);
+      }
+    }
+    if (d.sugerencias && d.sugerencias.length) {
+      var s = el("div", "sugerencias"); s.appendChild(el("span", "tenue pequeno", "¿Quisiste decir…?"));
+      d.sugerencias.forEach(function (p) {
+        var b = el("button", "boton chico placa", p); b.type = "button";
+        b.addEventListener("click", function () { enviar("¿Pasó la placa " + p + "?"); });
+        s.appendChild(b);
+      });
+      t.appendChild(s);
+    }
+    burbuja.appendChild(t);
+  }
+
+  function escribiendo(si) {
+    var e = $("escribiendo");
+    e.hidden = !si;
+    if (si) { chat.appendChild(e); bajar(); }
+  }
+
+  function enviar(texto) {
+    texto = (texto || "").trim();
+    if (ocupado || (!texto && !adjunto)) return;
+    ocupado = true; btn.disabled = true;
+    var archivo = adjunto;
+    mensaje("usuario", texto, archivo ? URL.createObjectURL(archivo) : null);
+    campo.value = ""; ajustar(); quitarAdjunto();
+    escribiendo(true);
+
+    var cuerpo, cabeceras = { "X-CSRFToken": csrfToken() };
+    if (archivo) {
+      cuerpo = new FormData();
+      cuerpo.append("mensaje", texto);
+      cuerpo.append("historial", JSON.stringify(historial));
+      cuerpo.append("imagen", archivo, archivo.name || "foto.jpg");
+    } else {
+      cuerpo = JSON.stringify({ mensaje: texto, historial: historial });
+      cabeceras["Content-Type"] = "application/json";
+    }
+    fetch("/api/v1/agente/chat", { method: "POST", credentials: "same-origin", headers: cabeceras, body: cuerpo })
+      .then(function (r) {
+        if (r.status === 401 || r.status === 403) throw new Error("Tu sesión expiró. Vuelve a iniciar sesión.");
+        return r.json().catch(function () { return {}; }).then(function (d) {
+          if (!r.ok) throw new Error(d.detalle || d.mensaje || ("Error " + r.status + " del servidor."));
+          return d;
+        });
+      })
+      .then(function (d) {
+        escribiendo(false);
+        var b = mensaje("asistente", d.respuesta || "Sin respuesta.");
+        tarjeta(b, d);
+        historial.push({ rol: "usuario", texto: texto || "[imagen adjunta]" }, { rol: "asistente", texto: d.respuesta || "" });
+        historial = historial.slice(-10);
+      })
+      .catch(function (e) {
+        escribiendo(false);
+        mensaje("asistente", e && e.message && e.message !== "Failed to fetch" ? e.message
+          : "No hay conexión con el servidor. Intenta de nuevo.");
+      })
+      .then(function () { ocupado = false; btn.disabled = false; campo.focus(); });
+  }
+
+  // --- Adjuntos con vista previa ---------------------------------------------------------------------
+  function elegir(e) {
+    var f = e.target.files && e.target.files[0];
+    e.target.value = "";
+    if (!f) return;
+    if (!/^image\//.test(f.type)) { mensaje("asistente", "El archivo debe ser una imagen."); return; }
+    adjunto = f;
+    $("vista-img").src = URL.createObjectURL(f);
+    $("vista-nombre").textContent = f.name || "Foto";
+    $("vista-adjunto").hidden = false;
+  }
+  function quitarAdjunto() { adjunto = null; $("vista-adjunto").hidden = true; $("vista-img").removeAttribute("src"); }
+  $("adjunto").addEventListener("change", elegir);
+  $("foto").addEventListener("change", elegir);
+  $("quitar-adjunto").addEventListener("click", quitarAdjunto);
+
+  // --- Campo de texto: Enter envía, Shift+Enter salta de línea; crece con el contenido ----------------
+  function ajustar() { campo.style.height = "auto"; campo.style.height = Math.min(campo.scrollHeight, 160) + "px"; }
+  campo.addEventListener("input", ajustar);
+  campo.addEventListener("keydown", function (e) {
+    if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); enviar(campo.value); }
+  });
+  form.addEventListener("submit", function (e) { e.preventDefault(); enviar(campo.value); });
+  Array.prototype.forEach.call(document.querySelectorAll(".ejemplo"), function (b) {
+    b.addEventListener("click", function () { enviar(b.textContent); });
+  });
+  campo.focus();
+})();
+</script>
 {% endblock %}

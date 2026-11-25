@@ -26,5 +26,6 @@ urlpatterns = [
     path("api/v1/pasos/frame", api.paso_frame, name="api_paso_frame"),
     path("api/v1/vehiculos/consulta", api.vehiculo_consulta, name="api_vehiculo_consulta"),
     path("api/v1/placas/leer", api.placa_leer, name="api_placa_leer"),
+    path("api/v1/agente/chat", api.agente_chat, name="api_agente_chat"),
     path("estado", views.estado, name="estado"),
 ]

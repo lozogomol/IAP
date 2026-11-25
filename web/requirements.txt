@@ -9,3 +9,4 @@ requests==2.34.2
 PyJWT==2.15.1
 djangorestframework==3.16.1
 drf-spectacular==0.30.0
+google-genai==3.6.1

@@ -517,6 +517,36 @@ dialog[open] { animation: entrar 150ms ease-out; }
 .burbuja { padding: 12px var(--e-3); line-height: 1.5; background: #fff; border: 1px solid var(--c-borde); border-left: 3px solid var(--n-2); }
 .mensaje.usuario-msg { align-self: flex-end; flex-direction: row-reverse; }
 .mensaje.usuario-msg .burbuja { background: var(--n-2); border-color: var(--n-2); color: #fff; }
+.asistente { max-width: 760px; }
+.burbuja { min-width: 0; overflow-wrap: anywhere; }
+.burbuja p { margin: 0; }
+.burbuja p + p { margin-top: 8px; }
+.ejemplos { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.burbuja-img { display: block; max-width: 220px; max-height: 180px; margin-bottom: 8px; border: 1px solid rgba(255, 255, 255, .4); }
+.tarjeta-estado { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--c-borde); }
+.tarjeta-estado-cab { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.tarjeta-estado .lista-datos { margin-top: 8px; }
+.tarjeta-estado .sugerencias { margin-top: 8px; }
+.captura-chat { display: block; width: 100%; max-width: 320px; aspect-ratio: 16 / 10; margin-top: 8px; padding: 0; overflow: hidden;
+                border: 1px solid var(--c-borde); background: var(--c-suave); cursor: zoom-in; }
+.captura-chat img { width: 100%; height: 100%; object-fit: cover; }
+.escribiendo { margin-top: var(--e-3); }
+.escribiendo[hidden] { display: none; }
+.puntos { display: inline-flex; gap: 4px; padding: 4px 0; }
+.puntos i { width: 6px; height: 6px; background: var(--c-tenue); animation: puntos 1.2s infinite ease-in-out; }
+.puntos i:nth-child(2) { animation-delay: .15s; } .puntos i:nth-child(3) { animation-delay: .3s; }
+@keyframes puntos { 0%, 80%, 100% { opacity: .25; transform: none; } 40% { opacity: 1; transform: translateY(-3px); } }
+.compositor { position: sticky; bottom: 0; z-index: 5; margin-top: var(--e-4); padding: 12px 0 calc(12px + env(safe-area-inset-bottom));
+              background: var(--c-fondo); border-top: 1px solid var(--c-borde); }
+.compositor-fila { display: flex; align-items: flex-end; gap: 8px; }
+.compositor textarea { flex: 1 1 auto; min-width: 0; min-height: var(--alto-control); max-height: 160px; resize: none; line-height: 1.4;
+                       padding-top: 10px; padding-bottom: 10px; }
+.compositor .boton { flex: 0 0 auto; }
+.vista-adjunto { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+.vista-adjunto[hidden] { display: none; }
+.vista-adjunto img { width: 64px; height: 48px; object-fit: cover; border: 1px solid var(--c-borde); }
+@media (max-width: 479px) { .compositor .texto-enviar { display: none; } .mensaje { max-width: 100%; } }
+@media (hover: hover) and (pointer: fine) { .solo-tactil { display: none; } }
 
 /* 21. Acceso (login y acceso denegado) --------------------------------------------------------------- */
 .pagina-acceso main.contenedor { min-height: 100vh; min-height: 100dvh; display: flex; align-items: center; justify-content: center; }

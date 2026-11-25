@@ -299,7 +299,7 @@ def usuario_accion(request, pk):
 
 @login_requerido
 def chat(request):
-    return render(request, "peaje/chat.html", {"texto": "Agente conversacional no disponible"})
+    return render(request, "peaje/chat.html")
 
 
 # --- Estado (público) ---------------------------------------------------------------------------

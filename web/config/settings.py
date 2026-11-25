@@ -125,6 +125,10 @@ PUSHER_KEY = os.environ.get("PUSHER_KEY", "")
 PUSHER_SECRET = os.environ.get("PUSHER_SECRET", "")
 PUSHER_CLUSTER = os.environ.get("PUSHER_CLUSTER", "us2")
 
+# --- Agente conversacional (Gemini). Sin clave responde el agente por reglas. ---
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "")  # vacío = el "flash" por defecto de peaje/servicios/agente.py
+
 # --- Capturas de los pasos: Cloudinary si CLOUDINARY_URL (cloudinary://key:secret@nube); si no, disco local. ---
 CLOUDINARY_URL = os.environ.get("CLOUDINARY_URL", "")
 MEDIA_ROOT = BASE_DIR / "media"

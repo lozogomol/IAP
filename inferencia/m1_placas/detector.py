@@ -4,15 +4,19 @@ Cada script de lectura importa este archivo, así los tres usan las mismas cajas
 """
 import base64
 import re
+import sys
 from pathlib import Path
 
 import cv2
 import numpy as np
 import onnxruntime as ort
 
-CARPETA = Path(__file__).parent / "modelo"
-MODELO = CARPETA / "yolo-v9-t-384-license-plates-end2end.onnx"
-LADO = 384
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "servidor"))
+import config  # noqa: E402  (rutas de los modelos: inferencia/servidor/config.py)
+
+MODELO = config.M1_DETECTOR
+OCR, OCR_CONFIG = config.M1_OCR, config.M1_OCR_CONFIG
+LADO = config.M1_LADO
 FORMATO_BOLIVIA = re.compile(r"^\d{3,4}[A-Z]{3}$")
 _SESION = None
 

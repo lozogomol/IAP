@@ -1,7 +1,7 @@
 """Lee placas con EasyOCR (entorno mamba).
 
 Uso: python placas_easyocr.py ruta/imagen.jpg
-La primera ejecución descarga los modelos de EasyOCR en modelo/easyocr.
+La primera ejecución descarga los modelos de EasyOCR en inferencia/modelos/easyocr (no se sube).
 """
 import json
 import sys
@@ -12,7 +12,7 @@ warnings.filterwarnings("ignore")
 
 import easyocr  # noqa: E402
 
-from detector import CARPETA, detectar, leer_imagen, resultado
+from detector import config, detectar, leer_imagen, resultado
 
 PERMITIDOS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 
@@ -25,7 +25,7 @@ def principal():
     imagen = leer_imagen(sys.argv[1])
     cajas = detectar(imagen)
     lector = easyocr.Reader(["en"], gpu=False, verbose=False,
-                            model_storage_directory=str(CARPETA / "easyocr"))
+                            model_storage_directory=str(config.MODELOS / "easyocr"))
 
     textos, confianzas = [], []
     for x1, y1, x2, y2, _ in cajas:

@@ -1,9 +1,13 @@
 """Tests del servidor de inferencia. Ejecutar desde inferencia/servidor:  python -m unittest -v test_app
 
-Usan los modelos reales del repo (no hay mocks del detector ni del OCR).
+ServidorTests usa los modelos reales del repo (rutas de config.py). El resto prueba la lógica con detecciones
+simuladas (sin modelos).
 """
+import base64
 import os
 import unittest
+from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 import cv2
@@ -11,6 +15,8 @@ import numpy as np
 from fastapi.testclient import TestClient
 
 import app as servidor
+import config
+import logica
 
 TOKEN = "token-de-prueba"
 
@@ -21,6 +27,29 @@ def _jpeg(imagen):
 
 def _escena_vacia():
     return np.full((480, 640, 3), 90, np.uint8)
+
+
+def _foto_bus():
+    import ultralytics
+    return (Path(ultralytics.__file__).parent / "assets" / "bus.jpg").read_bytes()
+
+
+def _decodificar_data_url(url):
+    datos = base64.b64decode(url.split(",", 1)[1])
+    return cv2.imdecode(np.frombuffer(datos, np.uint8), cv2.IMREAD_COLOR)
+
+
+class ConfigTests(unittest.TestCase):
+    def test_rutas_uniformes_y_existentes(self):
+        for ruta in (config.M1_DETECTOR, config.M1_OCR, config.M1_OCR_CONFIG, config.M2_VEHICULOS,
+                     config.M3_LLANTAS, config.M4_PASAJEROS):
+            self.assertTrue(ruta.name.startswith("iap_m"), ruta.name)
+            self.assertEqual(ruta.parent, config.MODELOS)
+            self.assertTrue(ruta.exists(), ruta)
+        self.assertTrue((config.ARCHIVO / "iap_m2_vehiculos_seg_v1_propio.pt").exists())
+
+    def test_detector_m1_usa_config(self):
+        self.assertEqual(servidor.detector.MODELO, config.M1_DETECTOR)
 
 
 class ServidorTests(unittest.TestCase):
@@ -41,12 +70,16 @@ class ServidorTests(unittest.TestCase):
         return self.cliente.post("/inferir", files={"imagen": ("f.jpg", datos, "image/jpeg")},
                                  headers=headers, params=params)
 
-    def test_salud(self):
+    def test_salud_lista_los_4_modelos(self):
         d = self.cliente.get("/salud").json()
         self.assertEqual(d["estado"], "ok")
-        self.assertEqual(d["modelos"]["m1_placas"], "cargado")
-        self.assertEqual(d["modelos"]["m2_segmentacion"], "cargado" if servidor.MODELO_M2.exists() else "pendiente")
-        self.assertEqual(d["modelos"]["m3_keypoints"], "pendiente")
+        self.assertEqual(d["modelos"], {"m1_placas": "cargado", "m2_vehiculos": "cargado",
+                                        "m3_llantas": "cargado", "m4_pasajeros": "cargado"})
+        det = d["detalle_modelos"]
+        self.assertEqual((det["m2_vehiculos"]["tarea"], det["m2_vehiculos"]["clases"]),
+                         ("segment", ["auto", "bus", "camion", "minibus", "moto"]))
+        self.assertEqual((det["m3_llantas"]["tarea"], det["m3_llantas"]["kpt_shape"]), ("pose", [5, 3]))
+        self.assertEqual(det["m4_pasajeros"]["archivo"], "iap_m4_pasajeros_seg.pt")
         self.assertTrue(d["token_configurado"])
 
     def test_sin_token_401(self):
@@ -63,116 +96,58 @@ class ServidorTests(unittest.TestCase):
         self.assertEqual(self._inferir(b"no es una imagen").status_code, 400)
 
     def test_imagen_muy_grande_413(self):
-        with mock.patch.object(servidor, "MAX_BYTES", 100):
+        with mock.patch.object(config, "MAX_BYTES", 100):
             self.assertEqual(self._inferir(_jpeg(_escena_vacia())).status_code, 413)
 
-    def test_escena_sin_placas(self):
-        r = self._inferir(_jpeg(_escena_vacia()))
-        self.assertEqual(r.status_code, 200)
-        d = r.json()
+    def test_escena_vacia_no_inventa(self):
+        d = self._inferir(_jpeg(_escena_vacia())).json()
+        self.assertEqual((d["placa"], d["categoria"], d["ejes"], d["pasajeros"], d["llantas_detectadas"]),
+                         (None, None, None, None, 0))
         self.assertEqual(d["placas"], [])
-        self.assertIsNone(d["categoria"])  # sin vehículo no se inventa categoría
-        self.assertIsNone(d["confianza_categoria"])
-        self.assertIsNone(d["caja_vehiculo"])
-        self.assertIsNone(d["ejes"])  # M3 pendiente
-        self.assertIn("milisegundos", d)
-
-    def test_anotada(self):
-        d = self._inferir(_jpeg(_escena_vacia()), anotada="true").json()
-        self.assertTrue(d["imagen"].startswith("data:image/jpeg;base64,"))
+        self.assertIsNone(d["evidencia"])
+        self.assertEqual(set(d["latencia_ms"]), {"total", "m1", "m2", "m3", "m4"})
+        self.assertEqual(set(d["cajas"]), {"placa", "vehiculo", "placas", "llantas", "personas"})
+        self.assertIn("motivo_ejes", d["detalle"])
 
     def test_formato_de_cada_placa(self):
         """Con un detector simulado que devuelve una caja, el OCR real lee el recorte y arma el contrato."""
         img = np.full((300, 600, 3), 255, np.uint8)
         cv2.putText(img, "2451KTP", (40, 190), cv2.FONT_HERSHEY_SIMPLEX, 3, (0, 0, 0), 8, cv2.LINE_AA)
         with mock.patch.object(servidor.detector, "detectar", return_value=[(10, 60, 590, 240, 0.9)]):
-            placas = self._inferir(_jpeg(img)).json()["placas"]
-        self.assertEqual(len(placas), 1)
-        p = placas[0]
-        self.assertEqual(set(p), {"texto", "formato_bolivia", "confianza_deteccion", "confianza_lectura", "caja"})
-        self.assertEqual(p["confianza_deteccion"], 90.0)
-        self.assertEqual(p["caja"], [10, 60, 590, 240])
-        self.assertTrue(0 <= p["confianza_lectura"] <= 100)
-        self.assertEqual(p["formato_bolivia"], bool(servidor.detector.FORMATO_BOLIVIA.match(p["texto"])))
+            d = self._inferir(_jpeg(img)).json()
+        p = d["placas"][0]
+        self.assertTrue({"texto", "formato_bolivia", "confianza_deteccion", "confianza_lectura", "caja"} <= set(p))
+        self.assertEqual((p["confianza_deteccion"], p["caja"]), (90.0, [10, 60, 590, 240]))
+        if p["formato_bolivia"]:  # la placa de la respuesta solo sale con formato boliviano
+            self.assertEqual((d["placa"], d["cajas"]["placa"]), (p["texto"], p["caja"]))
+        else:
+            self.assertIsNone(d["placa"])
 
-
-    @unittest.skipUnless(servidor.MODELO_M2.exists(), "falta inferencia/modelos/m2_seg.pt")
-    def test_m2_categoria_con_foto_real(self):
-        """bus.jpg (viene con ultralytics): M2 debe devolver una categoría válida con su caja."""
-        from pathlib import Path
-
-        import ultralytics
-        foto = Path(ultralytics.__file__).parent / "assets" / "bus.jpg"
-        d = self._inferir(foto.read_bytes(), anotada="true").json()
+    def test_foto_real_los_4_modelos(self):
+        """bus.jpg (viene con ultralytics): bus de 2 ejes con personas delante."""
+        d = self._inferir(_foto_bus(), anotada="true").json()
         self.assertEqual(d["categoria"], "bus")
+        self.assertEqual(d["detalle"]["clase_modelo"], "bus")
         self.assertTrue(0 < d["confianza_categoria"] <= 100)
-        self.assertEqual(len(d["caja_vehiculo"]), 4)
-        self.assertIsNone(d["ejes"])
+        self.assertEqual(d["cajas"]["vehiculo"], d["caja_vehiculo"])
+        self.assertIn(d["ejes"], (None, 2, 3))
+        self.assertGreaterEqual(d["llantas_detectadas"], 1)
+        self.assertIsInstance(d["pasajeros"], int)
+        self.assertTrue(all(isinstance(d["latencia_ms"][k], int) for k in ("total", "m1", "m2", "m3", "m4")))
         self.assertTrue(d["imagen"].startswith("data:image/jpeg;base64,"))
-
-
-class ElegirVehiculoTests(unittest.TestCase):
-    """Regla del vehículo principal (sin modelo: detecciones simuladas)."""
-
-    def _v(self, categoria, caja, area, mascara=None):
-        return {"categoria": categoria, "confianza": 0.9, "caja": caja, "area": area, "mascara": mascara}
-
-    def test_sin_vehiculos(self):
-        self.assertIsNone(servidor.elegir_vehiculo([], []))
-
-    def test_sin_placa_gana_mayor_area(self):
-        vs = [self._v("auto", [0, 0, 10, 10], 50), self._v("bus", [20, 20, 90, 90], 3000)]
-        self.assertEqual(servidor.elegir_vehiculo(vs, [])["categoria"], "bus")
-
-    def test_gana_el_que_contiene_el_centro_de_la_placa(self):
-        vs = [self._v("bus", [0, 0, 300, 300], 50000), self._v("moto", [400, 100, 500, 300], 4000)]
-        placas = [{"caja": [430, 250, 470, 270]}]
-        self.assertEqual(servidor.elegir_vehiculo(vs, placas)["categoria"], "moto")
-
-    def test_placa_fuera_de_todos_usa_mayor_area(self):
-        vs = [self._v("auto", [0, 0, 100, 100], 5000), self._v("camion", [200, 0, 400, 200], 20000)]
-        self.assertEqual(servidor.elegir_vehiculo(vs, [{"caja": [600, 600, 620, 610]}])["categoria"], "camion")
-
-    def test_superpuestos_prefiere_la_mascara(self):
-        m = np.zeros((300, 300), bool)
-        m[200:260, 100:200] = True  # la máscara del auto cubre la placa
-        vs = [self._v("bus", [0, 0, 300, 300], 60000, np.zeros((300, 300), bool)),
-              self._v("auto", [80, 150, 220, 280], 6000, m)]
-        self.assertEqual(servidor.elegir_vehiculo(vs, [{"caja": [130, 220, 170, 240]}])["categoria"], "auto")
-
-    def test_usa_la_placa_leida_no_la_primera(self):
-        """La placa de referencia es la de formato boliviano con mayor confianza de lectura."""
-        vs = [self._v("bus", [0, 0, 300, 300], 50000), self._v("moto", [400, 100, 500, 300], 4000)]
-        placas = [{"caja": [100, 200, 140, 220], "formato_bolivia": False, "confianza_lectura": 99},
-                  {"caja": [430, 250, 470, 270], "formato_bolivia": True, "confianza_lectura": 70}]
-        self.assertEqual(servidor.elegir_vehiculo(vs, placas)["categoria"], "moto")
-
-    def test_no_gana_la_de_mayor_porcentaje(self):
-        """El vehículo apuntado manda aunque otra detección tenga más confianza."""
-        vs = [{**self._v("bus", [0, 0, 300, 300], 50000), "confianza": 0.99},
-              {**self._v("auto", [400, 100, 600, 300], 30000), "confianza": 0.51}]
-        placas = [{"caja": [480, 250, 520, 270], "formato_bolivia": True, "confianza_lectura": 90}]
-        self.assertEqual(servidor.elegir_vehiculo(vs, placas, (480, 640))["categoria"], "auto")
-
-    def test_sin_placa_gana_el_grande_y_centrado(self):
-        forma = (480, 640)
-        esquina = self._v("camion", [0, 0, 200, 160], 32000)      # más grande pero en la esquina
-        centro = self._v("minibus", [220, 140, 420, 340], 30000)  # centrado
-        self.assertEqual(servidor.elegir_vehiculo([esquina, centro], [], forma)["categoria"], "minibus")
-        self.assertEqual(servidor.mas_grande_y_centrado([esquina, centro])["categoria"], "camion")  # sin forma
-
-    def test_placa_fuera_de_todos_usa_grande_y_centrado(self):
-        forma = (480, 640)
-        vs = [self._v("camion", [0, 0, 200, 160], 32000), self._v("auto", [220, 140, 420, 340], 30000)]
-        placa = {"caja": [600, 440, 630, 470], "formato_bolivia": True, "confianza_lectura": 90}
-        self.assertEqual(servidor.vehiculo_de_placa(vs, placa, forma)["categoria"], "auto")
+        # privacidad: hay personas → la evidencia viene con ellas cubiertas por color sólido
+        self.assertTrue(d["cajas"]["personas"])
+        evidencia = _decodificar_data_url(d["evidencia"])
+        x1, y1, x2, y2 = d["cajas"]["personas"][0]
+        centro = evidencia[(y1 + y2) // 2 - 5:(y1 + y2) // 2 + 5, (x1 + x2) // 2 - 5:(x1 + x2) // 2 + 5]
+        self.assertTrue(np.allclose(centro.mean(axis=(0, 1)), config.COLOR_PRIVACIDAD, atol=12))
 
 
 class _T:
     """Tensor simulado de ultralytics (.cpu().numpy())."""
 
     def __init__(self, a):
-        self.a = np.asarray(a)
+        self.a = np.asarray(a, dtype=float)
 
     def cpu(self):
         return self
@@ -181,31 +156,7 @@ class _T:
         return self.a
 
 
-class ClasesDelModeloTests(unittest.TestCase):
-    """La clase es exactamente modelo.names (Roboflow), sin lista fija ni reordenamiento."""
-
-    def _resultado(self, names, clases, confs, cajas):
-        from types import SimpleNamespace
-        return SimpleNamespace(boxes=_Cajas(cajas, clases, confs), masks=None, names=names)
-
-    def test_usa_modelo_names_tal_cual(self):
-        names = {0: "auto", 1: "bus", 2: "camion", 3: "minibus", 4: "moto"}
-        r = self._resultado(names, [4, 2, 0], [0.9, 0.8, 0.7],
-                            [[0, 0, 10, 10], [10, 10, 30, 30], [40, 40, 50, 50]])
-        modelo = mock.Mock(predict=mock.Mock(return_value=[r]))
-        with mock.patch.object(servidor, "_m2", modelo):
-            vs = servidor.detectar_vehiculos(np.zeros((60, 60, 3), np.uint8))
-        self.assertEqual([v["categoria"] for v in vs], ["moto", "camion", "auto"])
-
-    def test_clase_nueva_pasa_sin_filtrar(self):
-        r = self._resultado({0: "tractor"}, [0], [0.6], [[0, 0, 10, 10]])
-        with mock.patch.object(servidor, "_m2", mock.Mock(predict=mock.Mock(return_value=[r]))):
-            self.assertEqual(servidor.detectar_vehiculos(np.zeros((20, 20, 3), np.uint8))[0]["categoria"], "tractor")
-
-
 class _Cajas:
-    """r.boxes simulado."""
-
     def __init__(self, cajas, clases, confs):
         self.xyxy, self.cls, self.conf = _T(cajas), _T(clases), _T(confs)
 
@@ -213,33 +164,184 @@ class _Cajas:
         return len(self.cls.a)
 
 
-class VehiculoPorPlacaTests(unittest.TestCase):
-    """/inferir: cada placa lleva SU vehículo y el global es el de la placa leída."""
+class VehiculoTests(unittest.TestCase):
+    """Vehículo principal (detecciones simuladas)."""
 
-    @classmethod
-    def setUpClass(cls):
-        cls.env = mock.patch.dict(os.environ, {"IAP_TOKEN": TOKEN})
-        cls.env.start()
-        cls.cliente = TestClient(servidor.app)  # sin lifespan: los modelos se simulan
+    def _v(self, categoria, caja, area, conf=0.9, mascara=None):
+        return {"categoria": categoria, "confianza": conf, "caja": caja, "area": area, "mascara": mascara}
 
-    @classmethod
-    def tearDownClass(cls):
-        cls.env.stop()
+    def test_sin_vehiculos(self):
+        self.assertIsNone(logica.elegir_vehiculo([], []))
 
-    def test_cada_placa_con_su_vehiculo(self):
-        placas = [{"texto": "XX1", "formato_bolivia": False, "confianza_deteccion": 90.0, "confianza_lectura": 95.0,
-                   "caja": [100, 200, 140, 220]},
-                  {"texto": "2451KTP", "formato_bolivia": True, "confianza_deteccion": 80.0,
-                   "confianza_lectura": 85.0, "caja": [430, 250, 470, 270]}]
-        vs = [{"categoria": "bus", "confianza": 0.97, "caja": [0, 0, 300, 300], "area": 50000, "mascara": None},
-              {"categoria": "moto", "confianza": 0.55, "caja": [400, 100, 500, 300], "area": 4000, "mascara": None}]
-        with mock.patch.object(servidor, "leer_placas", return_value=placas), \
-                mock.patch.object(servidor, "detectar_vehiculos", return_value=vs):
-            d = self.cliente.post("/inferir", files={"imagen": ("f.jpg", _jpeg(_escena_vacia()), "image/jpeg")},
-                                  headers={"X-API-Token": TOKEN}).json()
-        self.assertEqual((d["categoria"], d["confianza_categoria"], d["caja_vehiculo"]),
-                         ("moto", 55.0, [400, 100, 500, 300]))
-        self.assertEqual([(p["texto"], p["categoria"]) for p in d["placas"]], [("XX1", "bus"), ("2451KTP", "moto")])
+    def test_gana_el_que_contiene_el_centro_de_la_placa(self):
+        vs = [self._v("bus", [0, 0, 300, 300], 50000, 0.99), self._v("moto", [400, 100, 500, 300], 4000, 0.3)]
+        placas = [{"caja": [430, 250, 470, 270], "formato_bolivia": True, "confianza_lectura": 80}]
+        self.assertEqual(logica.elegir_vehiculo(vs, placas)["categoria"], "moto")
+
+    def test_usa_la_placa_leida_no_la_primera(self):
+        vs = [self._v("bus", [0, 0, 300, 300], 50000), self._v("moto", [400, 100, 500, 300], 4000)]
+        placas = [{"caja": [100, 200, 140, 220], "formato_bolivia": False, "confianza_lectura": 99},
+                  {"caja": [430, 250, 470, 270], "formato_bolivia": True, "confianza_lectura": 70}]
+        self.assertEqual(logica.elegir_vehiculo(vs, placas)["categoria"], "moto")
+
+    def test_superpuestos_prefiere_la_mascara(self):
+        m = np.zeros((300, 300), bool)
+        m[200:260, 100:200] = True
+        vs = [self._v("bus", [0, 0, 300, 300], 60000, mascara=np.zeros((300, 300), bool)),
+              self._v("auto", [80, 150, 220, 280], 6000, mascara=m)]
+        placas = [{"caja": [130, 220, 170, 240], "formato_bolivia": True}]
+        self.assertEqual(logica.elegir_vehiculo(vs, placas)["categoria"], "auto")
+
+    def test_sin_placa_grande_y_centrado(self):
+        forma = (480, 640)
+        esquina = self._v("camion", [0, 0, 200, 160], 32000)
+        centro = self._v("minibus", [220, 140, 420, 340], 30000)
+        self.assertEqual(logica.elegir_vehiculo([esquina, centro], [], forma)["categoria"], "minibus")
+
+    def test_sin_placa_exige_confianza_040(self):
+        forma = (480, 640)
+        flojo = self._v("bus", [100, 100, 540, 400], 100000, conf=0.39)
+        chico = self._v("auto", [0, 0, 80, 60], 3000, conf=0.41)
+        self.assertEqual(logica.elegir_vehiculo([flojo, chico], [], forma)["categoria"], "auto")
+        self.assertIsNone(logica.elegir_vehiculo([flojo], [], forma))
+
+    def test_recorte_con_margen_dentro_de_la_imagen(self):
+        self.assertEqual(logica.recorte([10, 20, 110, 220], (230, 115), margen=0.1), (0, 0, 115, 230))
+
+
+class ClasesM2Tests(unittest.TestCase):
+    """Las clases salen de model.names y se traducen con el mapa explícito de config.py."""
+
+    def _r(self, names, clases):
+        n = len(clases)
+        return SimpleNamespace(boxes=_Cajas([[0, 0, 10, 10]] * n, clases, [0.9] * n), masks=None, names=names)
+
+    def test_traduce_con_model_names(self):
+        names = {0: "auto", 1: "bus", 2: "camion", 3: "minibus", 4: "moto"}
+        with mock.patch.object(servidor, "M2", mock.Mock(listo=True, predecir=mock.Mock(
+                return_value=self._r(names, [4, 2, 0])))):
+            vs = servidor.detectar_vehiculos(np.zeros((20, 20, 3), np.uint8))
+        self.assertEqual([(v["categoria"], v["clase_modelo"]) for v in vs],
+                         [("moto", "moto"), ("camion", "camion"), ("auto", "auto")])
+
+    def test_clase_fuera_del_mapa_se_ignora(self):
+        with mock.patch.object(servidor, "M2", mock.Mock(listo=True, predecir=mock.Mock(
+                return_value=self._r({0: "tractor", 1: "bus"}, [0, 1])))):
+            vs = servidor.detectar_vehiculos(np.zeros((20, 20, 3), np.uint8))
+        self.assertEqual([v["categoria"] for v in vs], ["bus"])
+
+    def test_el_mapa_cubre_el_modelo_real(self):
+        from ultralytics import YOLO
+        nombres = set(YOLO(str(config.M2_VEHICULOS)).names.values())
+        self.assertEqual(nombres - set(config.M2_CATEGORIAS), set())
+
+
+def _llanta5(cx, cy, d, ancho=None, conf=0.9):
+    """Llanta simulada con los 5 puntos del modelo (centro, abajo, arriba, izquierda, derecha)."""
+    a = d if ancho is None else ancho
+    pts = [[cx, cy, 0.9], [cx, cy + d / 2, 0.9], [cx, cy - d / 2, 0.9], [cx - a / 2, cy, 0.9], [cx + a / 2, cy, 0.9]]
+    return logica.llanta([cx - a / 2, cy - d / 2, cx + a / 2, cy + d / 2], conf, pts)
+
+
+class LlantaTests(unittest.TestCase):
+    def test_5_puntos(self):
+        l = _llanta5(100, 200, 40, ancho=36)
+        self.assertEqual((l["centro"], l["alto"], l["ancho"]), ([100, 200], 40, 36))
+
+    def test_1_punto_usa_la_caja(self):
+        l = logica.llanta([80, 180, 120, 230], 0.8, [[101, 204, 0.9]])
+        self.assertEqual((l["centro"], l["alto"], l["ancho"]), ([101, 204], 50, 40))
+
+    def test_solo_cajas(self):
+        l = logica.llanta([80, 180, 120, 230], 0.8)
+        self.assertEqual((l["centro"], l["alto"], l["puntos"]), ([100, 205], 50, None))
+
+    def test_punto_poco_confiable_cae_a_la_caja(self):
+        pts = [[100, 200, 0.9], [100, 300, 0.1], [100, 180, 0.9], [80, 200, 0.9], [120, 200, 0.9]]
+        self.assertEqual(logica.llanta([80, 180, 120, 220], 0.8, pts)["alto"], 40)
+
+
+class EjesTests(unittest.TestCase):
+    VEH = [0, 0, 1000, 400]
+
+    def test_auto_lateral_2_ejes(self):
+        ejes, propias, d = logica.contar_ejes(self.VEH, [_llanta5(150, 350, 80), _llanta5(800, 350, 80)])
+        self.assertEqual((ejes, len(propias), d["vista"]), (2, 2, "lateral"))
+
+    def test_camion_con_rueda_doble_fusiona(self):
+        """Tándem trasero pegado (< 0.6 diámetros) cuenta como un eje."""
+        llantas = [_llanta5(100, 350, 80), _llanta5(600, 350, 80), _llanta5(640, 350, 80), _llanta5(900, 350, 80)]
+        self.assertEqual(logica.contar_ejes(self.VEH, llantas)[0], 3)
+
+    def test_camion_5_ejes(self):
+        llantas = [_llanta5(x, 350, 80) for x in (80, 300, 400, 750, 850)]
+        self.assertEqual(logica.contar_ejes(self.VEH, llantas)[0], 5)
+
+    def test_lado_lejano_se_descarta(self):
+        """Las llantas del lado lejano se ven más chicas y no suman ejes."""
+        llantas = [_llanta5(150, 350, 80), _llanta5(800, 350, 80), _llanta5(450, 320, 40), _llanta5(550, 320, 40)]
+        ejes, propias, d = logica.contar_ejes(self.VEH, llantas)
+        self.assertEqual((ejes, len(propias), d["llantas_lado_cercano"]), (2, 4, 2))
+
+    def test_llantas_fuera_o_arriba_no_son_del_vehiculo(self):
+        llantas = [_llanta5(150, 350, 80), _llanta5(1200, 350, 80), _llanta5(500, 60, 80)]
+        ejes, propias, _ = logica.contar_ejes(self.VEH, llantas)
+        self.assertEqual((ejes, len(propias)), (2, 1))  # una sola llanta → mínimo 2 ejes
+
+    def test_vista_frontal_no_cuenta(self):
+        llantas = [_llanta5(150, 350, 80, ancho=20), _llanta5(850, 350, 80, ancho=22)]
+        ejes, _, d = logica.contar_ejes(self.VEH, llantas)
+        self.assertEqual((ejes, d["vista"]), (None, "frontal_posterior"))
+
+    def test_sin_llantas_es_null(self):
+        self.assertIsNone(logica.contar_ejes(self.VEH, [])[0])
+
+
+class PasajerosYPrivacidadTests(unittest.TestCase):
+    VEH = [100, 100, 300, 300]
+
+    def _persona(self, caja, con_mascara=True):
+        x1, y1, x2, y2 = caja
+        m = np.ones((y2 - y1, x2 - x1), bool) if con_mascara else None
+        return {"caja": caja, "confianza": 0.9, "mascara": m, "origen": (x1, y1)}
+
+    def test_cuenta_solo_las_de_dentro(self):
+        personas = [self._persona([150, 150, 200, 250]), self._persona([400, 100, 450, 250]),
+                    self._persona([280, 150, 340, 250], con_mascara=False)]  # 1/3 dentro
+        self.assertEqual(logica.contar_pasajeros(self.VEH, personas), 1)
+
+    def test_cubre_con_color_solido(self):
+        img = np.random.default_rng(0).integers(0, 255, (400, 400, 3), dtype=np.uint8)
+        logica.cubrir_personas(img, [self._persona([150, 150, 200, 250]),
+                                     self._persona([10, 10, 30, 40], con_mascara=False)])
+        self.assertTrue((img[150:250, 150:200] == config.COLOR_PRIVACIDAD).all())
+        self.assertTrue((img[10:40, 10:30] == config.COLOR_PRIVACIDAD).all())
+
+    def test_endpoint_cubre_personas_en_evidencia_y_anotada(self):
+        """Con modelos simulados: la evidencia y la anotada no muestran a la persona, solo el conteo."""
+        img = np.random.default_rng(1).integers(0, 255, (480, 640, 3), dtype=np.uint8)
+        persona = self._persona([200, 150, 260, 260])
+        vehiculo = {"categoria": "auto", "clase_modelo": "auto", "confianza": 0.9, "caja": [100, 100, 500, 400],
+                    "area": 120000, "mascara": None}
+        cm = mock.patch.dict(os.environ, {"IAP_TOKEN": TOKEN})
+        cm.start()
+        self.addCleanup(cm.stop)
+        with mock.patch.object(servidor, "leer_placas", return_value=[]), \
+                mock.patch.object(servidor, "detectar_vehiculos", return_value=[vehiculo]), \
+                mock.patch.object(servidor, "M3", mock.Mock(listo=True)), \
+                mock.patch.object(servidor, "M4", mock.Mock(listo=True)), \
+                mock.patch.object(servidor, "detectar_llantas",
+                                  return_value=[_llanta5(160, 360, 70), _llanta5(440, 360, 70)]), \
+                mock.patch.object(servidor, "detectar_personas", return_value=[persona]):
+            d = TestClient(servidor.app).post(
+                "/inferir", files={"imagen": ("f.png", cv2.imencode(".png", img)[1].tobytes(), "image/png")},
+                headers={"X-API-Token": TOKEN}, params={"anotada": "true"}).json()
+        self.assertEqual((d["categoria"], d["ejes"], d["llantas_detectadas"], d["pasajeros"]), ("auto", 2, 2, 1))
+        self.assertEqual(d["cajas"]["personas"], [[200, 150, 260, 260]])
+        for clave in ("evidencia", "imagen"):
+            cubierta = _decodificar_data_url(d[clave])[170:240, 210:250].astype(float)
+            self.assertTrue(np.allclose(cubierta.mean(axis=(0, 1)), config.COLOR_PRIVACIDAD, atol=10), clave)
+            self.assertLess(cubierta.std(), 12, clave)  # color sólido: nada del original
 
 
 if __name__ == "__main__":

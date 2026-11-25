@@ -10,7 +10,7 @@ import cv2
 import fast_plate_ocr
 from fast_plate_ocr import LicensePlateRecognizer
 
-from detector import CARPETA, detectar, leer_imagen, resultado
+from detector import OCR, OCR_CONFIG, detectar, leer_imagen, resultado
 
 
 def principal():
@@ -21,8 +21,8 @@ def principal():
     imagen = leer_imagen(sys.argv[1])
     cajas = detectar(imagen)
     lector = LicensePlateRecognizer(
-        onnx_model_path=CARPETA / "cct_xs_v2_global.onnx",
-        plate_config_path=CARPETA / "cct_xs_v2_global_plate_config.yaml",
+        onnx_model_path=OCR,
+        plate_config_path=OCR_CONFIG,
     )
 
     textos, confianzas = [], []

@@ -8,8 +8,10 @@ Laboratorio Final de Hito · UNIFRANZ
 ## Estructura
 ```
 /entrenamiento   notebooks de Colab (M2 segmentación, M3 keypoints)
-/inferencia      endpoint único con los 3 modelos (RunPod)
-  /m1_placas     modelo M1: detección de placas (YOLOv9-t ONNX) + OCR (fast-plate-ocr), reutilizado del proyecto anterior
+/inferencia      endpoint único con los 4 modelos (Colab + ngrok / RunPod)
+  /modelos       pesos: iap_m1_placas_*.onnx, iap_m2_vehiculos_seg.pt, iap_m3_llantas_pose.pt, iap_m4_pasajeros_seg.pt
+  /servidor      FastAPI (app.py), lógica (logica.py) y rutas de los modelos (config.py)
+  /m1_placas     scripts de M1: detección de placas (YOLOv9-t ONNX) + OCR (fast-plate-ocr)
 /web             aplicación web Django: panel, API, agente
 /movil           PWA empaquetada como APK
 /docs            documentación de la API y diagramas
@@ -21,10 +23,12 @@ Laboratorio Final de Hito · UNIFRANZ
 - Endpoint de inferencia: (pendiente)
 
 ## Contrato del endpoint de inferencia
-La web llama a `POST {INFERENCE_URL}/inferir` (multipart, campo `imagen`, cabecera `X-API-Token`) y espera
-`{"placas": [{"texto": "2451KTP", "confianza_lectura": 93.4}], "categoria": "auto", "ejes": 2}`.
-`categoria` la da M2 (tipo de vehículo, YOLO11s-seg) y `ejes` llegará con M3; mientras no haya ejes la tarifa usa la
-categoría detectada con 2 ejes, y si no hay categoría, la del vehículo registrado. Métricas de M2 en `docs/metricas/m2/`.
+La web llama a `POST {INFERENCE_URL}/inferir` (multipart, campo `imagen`, cabecera `X-API-Token`) y recibe
+`placa`, `confianza`, `categoria` (auto/bus/camion/minibus/moto), `confianza_categoria`, `ejes`, `llantas_detectadas`,
+`pasajeros`, `latencia_ms` (total y por modelo), `cajas`, `detalle` y `evidencia` (detalle en `inferencia/README.md`).
+Tarifa = categoría detectada + ejes detectados; si M3 no da los ejes, la mínima de esa categoría (y si no hay
+categoría, la del vehículo registrado). Cada paso guarda categoría, ejes y pasajeros (null si no se detectaron) y,
+como captura, la evidencia con las personas cubiertas por su máscara. Métricas de M2 en `docs/metricas/m2/`.
 
 ## Modo caseta (cámara del celular)
 `/caseta` usa la cámara trasera y envía 2 frames/s (1280 px, JPEG 0.8) a `POST /api/v1/pasos/frame`; se pausa sola

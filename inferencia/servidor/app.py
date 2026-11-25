@@ -1,30 +1,33 @@
-"""Servidor de inferencia de IAP (FastAPI). Sirve M1 (placas) y M2 (tipo de vehículo); M3 se sumará aquí.
+"""Servidor de inferencia de IAP (FastAPI): M1 placas, M2 tipo de vehículo, M3 ejes (llantas), M4 pasajeros.
 
-Contrato que consume la web Django (web/peaje/inferencia.py):
+Rutas de los modelos y umbrales: config.py (un único archivo para cambiar de modelo).
 
-    GET  /salud     → estado del servidor y de los modelos (público, sin datos sensibles)
+    GET  /salud     → estado del servidor y de los 4 modelos (público, sin datos sensibles)
     POST /inferir   → multipart con el campo `imagen` (JPEG/PNG) y la cabecera X-API-Token
-                      {"placas": [{"texto", "formato_bolivia", "confianza_deteccion", "confianza_lectura", "caja",
-                                   "categoria", "confianza_categoria", "caja_vehiculo"}],
-                       "categoria": "auto", "confianza_categoria": 91.2, "caja_vehiculo": [x1, y1, x2, y2],
-                       "ejes": null, "milisegundos": 42}
 
-M2 (YOLO11s-seg, inferencia/modelos/m2_seg.pt). Primero se elige el VEHÍCULO APUNTADO y después se informa SU
-clase (nunca la detección de mayor porcentaje de toda la imagen):
-  - cada placa lleva el vehículo que la contiene (centro de la placa dentro de su caja; si varios, el que lo tiene
-    dentro de la máscara y luego el de mayor área); si ninguno la contiene, el más grande y centrado;
-  - el vehículo global es el de la placa leída (la de formato boliviano con mayor confianza de lectura; si no hay
-    ninguna válida, la de mayor confianza); sin placas, el más grande y centrado en la imagen.
-La clase es exactamente el nombre del modelo (`modelo.names`, como se etiquetó en Roboflow: auto, bus, camion,
-minibus, moto), sin lista fija ni reordenamiento. Sin vehículos (o sin el .pt) `categoria`, `confianza_categoria` y
-`caja_vehiculo` van en null. `ejes` va en null hasta que exista M3
-(keypoints): nunca se inventa. Las confianzas van en 0..100 (la web las normaliza).
+Respuesta de /inferir (confianzas en 0..100, cajas [x1, y1, x2, y2] en píxeles de la imagen recibida):
 
-Variables de entorno:
-    IAP_TOKEN      token compartido con la web (en Render: INFERENCE_TOKEN). Obligatorio para /inferir.
-    IAP_MAX_MB     tamaño máximo de imagen (por defecto 6).
-    IAP_UMBRAL     confianza mínima del detector, 0..1 (por defecto 0.4).
-    IAP_DISPOSITIVO  dispositivo de M2: "cpu" o "0" (GPU). Por defecto GPU si hay CUDA.
+    {"placa": "2451KTP" | null, "confianza": 93.4 | null,          M1, solo lecturas con formato boliviano
+     "categoria": "auto" | null, "confianza_categoria": 91.2,       M2 del vehículo principal (español del sistema)
+     "ejes": 2 | null, "llantas_detectadas": 4,                      M3 sobre el recorte del vehículo principal
+     "pasajeros": 1 | null,                                          M4 sobre el recorte del vehículo principal
+     "latencia_ms": {"total", "m1", "m2", "m3", "m4"},
+     "cajas": {"placa", "vehiculo", "placas": [...], "llantas": [...], "personas": [...]},
+     "detalle": {"vista", "llantas_lado_cercano", "motivo_ejes", "clase_modelo", ...},
+     "placas": [{"texto", "formato_bolivia", "confianza_deteccion", "confianza_lectura", "caja",
+                 "categoria", "confianza_categoria", "caja_vehiculo"}],   cada placa con SU vehículo
+     "caja_vehiculo": [...], "milisegundos": 42,                     compatibilidad
+     "evidencia": "data:image/jpeg;base64,..." | null,              frame con las personas cubiertas (si hubo)
+     "imagen": "data:image/jpeg;base64,..."}                        solo con ?anotada=true
+
+Vehículo principal = el que contiene el centro de la placa leída; sin placa, el más grande y centrado con confianza
+>= 0.40. `ejes` = null si no hay llantas, si es vista frontal/posterior o si M3 no está cargado; nunca se inventa.
+
+PRIVACIDAD: no hay reconocimiento facial ni recortes de rostros. En la imagen anotada y en la evidencia las personas
+se cubren con su máscara en color sólido; solo se informa el conteo.
+
+Variables de entorno: IAP_TOKEN (obligatorio para /inferir), IAP_MAX_MB, IAP_UMBRAL, IAP_DISPOSITIVO y las rutas
+IAP_M1_DETECTOR, IAP_M1_OCR, IAP_M1_OCR_CONFIG, IAP_M2_MODELO, IAP_M3_MODELO, IAP_M4_MODELO (ver config.py).
 
 Ejecutar:  uvicorn app:app --host 0.0.0.0 --port 8000   (desde inferencia/servidor)
 """
@@ -36,90 +39,131 @@ import sys
 import threading
 import time
 from contextlib import asynccontextmanager
-from pathlib import Path
 
 import cv2
 import numpy as np
 from fastapi import FastAPI, File, Header, HTTPException, Query, UploadFile
 
-RAIZ = Path(__file__).resolve().parent.parent
-M1 = RAIZ / "m1_placas"
-MODELO_M2 = RAIZ / "modelos" / "m2_seg.pt"
-sys.path.insert(0, str(M1))
+import config
+import logica
+
+sys.path.insert(0, str(config.RAIZ / "m1_placas"))
 import detector  # noqa: E402  (m1_placas/detector.py: YOLOv9-t ONNX compartido)
 
 log = logging.getLogger("iap.inferencia")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
-MAX_BYTES = int(float(os.environ.get("IAP_MAX_MB", "6")) * 1024 * 1024)
-UMBRAL = float(os.environ.get("IAP_UMBRAL", "0.4"))
-VERSION = "1.2.0"
-M2_CONF = 0.35
-M2_IMGSZ = 640
-
+VERSION = "2.0.0"
 _lector = None
-_m2 = None
-_m2_estado = "pendiente"  # pendiente (no hay .pt) | cargando | cargado | error
-_m2_dispositivo = "cpu"
-_lock_m2 = threading.Lock()  # los modelos de ultralytics no son seguros entre hilos
 _lock_carga = threading.Lock()
 _inicio = time.time()
 _contador = {"inferencias": 0, "errores": 0}
+_dispositivo = "cpu"
+
+
+# --- Modelos -------------------------------------------------------------------------------------------
+
+class Modelo:
+    """Un modelo de ultralytics: se carga una vez al arrancar; predict con lock (no son seguros entre hilos)."""
+
+    def __init__(self, clave, nombre, ruta, tarea, imgsz):
+        self.clave, self.nombre, self.ruta, self.tarea, self.imgsz = clave, nombre, ruta, tarea, imgsz
+        self.yolo, self.error, self._lock = None, "", threading.Lock()
+        self.estado = "pendiente" if not ruta.exists() else "sin_cargar"
+
+    @property
+    def listo(self):
+        return self.yolo is not None
+
+    def cargar(self, dispositivo):
+        if self.yolo is not None or not self.ruta.exists():
+            return
+        self.estado = "cargando"
+        try:
+            from ultralytics import YOLO
+            modelo = YOLO(str(self.ruta))
+            if modelo.task != self.tarea:
+                raise ValueError(f"se esperaba task={self.tarea} y el modelo es task={modelo.task}")
+            modelo.predict(np.zeros((self.imgsz, self.imgsz, 3), np.uint8), imgsz=self.imgsz, device=dispositivo,
+                           verbose=False)  # calentamiento
+            self.yolo, self.estado = modelo, "cargado"
+            log.info("%s cargado (%s, task=%s, %d clases)", self.clave, self.ruta.name, modelo.task,
+                     len(modelo.names))
+        except Exception as e:  # noqa: BLE001  (el servidor sigue sirviendo los demás modelos)
+            self.estado, self.error = "error", str(e)
+            log.exception("No se pudo cargar %s (%s)", self.clave, self.ruta)
+
+    def predecir(self, imagen, **kw):
+        with self._lock:
+            return self.yolo.predict(imagen, imgsz=self.imgsz, device=_dispositivo, verbose=False, **kw)[0]
+
+    def info(self):
+        datos = {"estado": self.estado, "nombre": self.nombre, "archivo": self.ruta.name, "tarea": self.tarea}
+        if self.yolo is not None:
+            nombres = list(self.yolo.names.values())
+            datos["clases"] = nombres if len(nombres) <= 10 else f"{len(nombres)} clases"
+            kpt = getattr(self.yolo.model.model[-1], "kpt_shape", None)
+            if kpt:
+                datos["kpt_shape"] = list(kpt)
+        if self.error:
+            datos["error"] = self.error
+        return datos
+
+
+M2 = Modelo("m2_vehiculos", "Tipo de vehículo", config.M2_VEHICULOS, "segment", config.M2_IMGSZ)
+M3 = Modelo("m3_llantas", "Conteo de ejes", config.M3_LLANTAS, "pose", config.M3_IMGSZ)
+M4 = Modelo("m4_pasajeros", "Conteo de pasajeros", config.M4_PASAJEROS, "segment", config.M4_IMGSZ)
+_persona_id = None  # id de la clase "person" en M4 (se busca en model.names al cargar)
 
 
 def lector():
-    """OCR de fast-plate-ocr, cargado una sola vez con el modelo que viene en el repo (sin descargas)."""
+    """OCR de fast-plate-ocr, cargado una sola vez con el modelo del repo (sin descargas)."""
     global _lector
     if _lector is None:
         with _lock_carga:
             if _lector is None:
                 from fast_plate_ocr import LicensePlateRecognizer
-                _lector = LicensePlateRecognizer(
-                    onnx_model_path=detector.CARPETA / "cct_xs_v2_global.onnx",
-                    plate_config_path=detector.CARPETA / "cct_xs_v2_global_plate_config.yaml",
-                    device="cpu",
-                )
+                _lector = LicensePlateRecognizer(onnx_model_path=config.M1_OCR,
+                                                 plate_config_path=config.M1_OCR_CONFIG, device="cpu")
     return _lector
 
 
-def cargar_m2():
-    """Carga M2 una sola vez (GPU si hay CUDA, si no CPU). Si no existe el .pt, M2 queda 'pendiente'."""
-    global _m2, _m2_estado, _m2_dispositivo
-    if _m2 is not None or not MODELO_M2.exists():
-        return _m2
-    _m2_estado = "cargando"
+def cargar_modelos():
+    """M1 + M2/M3/M4 una sola vez. Verifica los nombres de clase reales contra config.py."""
+    global _dispositivo, _persona_id
+    detector.sesion()
+    lector()
     try:
         import torch
-        from ultralytics import YOLO
-        _m2_dispositivo = os.environ.get("IAP_DISPOSITIVO") or ("0" if torch.cuda.is_available() else "cpu")
-        modelo = YOLO(str(MODELO_M2), task="segment")
-        # Calentamiento: la primera predicción inicializa capas y memoria
-        modelo.predict(np.zeros((M2_IMGSZ, M2_IMGSZ, 3), np.uint8), imgsz=M2_IMGSZ, conf=M2_CONF,
-                       device=_m2_dispositivo, verbose=False)
-        _m2, _m2_estado = modelo, "cargado"
-        log.info("M2 cargado en %s (clases: %s)", _m2_dispositivo, list(modelo.names.values()))
-    except Exception:  # noqa: BLE001  (el servidor sigue sirviendo M1)
-        _m2_estado = "error"
-        log.exception("No se pudo cargar M2 (%s)", MODELO_M2)
-    return _m2
+        _dispositivo = config.DISPOSITIVO or ("0" if torch.cuda.is_available() else "cpu")
+    except ImportError:
+        _dispositivo = "cpu"
+    for m in (M2, M3, M4):
+        m.cargar(_dispositivo)
+    if M2.listo:
+        faltan = [n for n in M2.yolo.names.values() if n not in config.M2_CATEGORIAS]
+        if faltan:
+            log.warning("M2 trae clases sin traducir en config.M2_CATEGORIAS (se ignoran): %s", faltan)
+    if M4.listo:
+        _persona_id = next((i for i, n in M4.yolo.names.items() if n == config.M4_CLASE_PERSONA), None)
+        if _persona_id is None:
+            M4.estado, M4.error = "error", f"el modelo no tiene la clase '{config.M4_CLASE_PERSONA}'"
+            M4.yolo = None
 
 
 @asynccontextmanager
 async def precargar(_app):
-    """Carga los modelos al arrancar para que la primera petición no pague el costo."""
     t0 = time.perf_counter()
-    detector.sesion()
-    lector()
-    cargar_m2()
-    log.info("Modelos cargados en %d ms", (time.perf_counter() - t0) * 1000)
+    cargar_modelos()
+    log.info("Modelos cargados en %d ms (dispositivo %s)", (time.perf_counter() - t0) * 1000, _dispositivo)
     if not os.environ.get("IAP_TOKEN"):
         log.warning("IAP_TOKEN no está configurado: /inferir responderá 503.")
     yield
 
 
 app = FastAPI(title="IAP · Servidor de inferencia", version=VERSION, lifespan=precargar,
-              description="M1: detección de placas (YOLOv9-t ONNX) + OCR (fast-plate-ocr). "
-                          "M2: tipo de vehículo (YOLO11s-seg).")
+              description="M1 placas (YOLOv9-t ONNX + fast-plate-ocr), M2 tipo de vehículo (YOLO11s-seg), "
+                          "M3 ejes (YOLO11s-pose, llantas), M4 pasajeros (YOLO11s-seg, personas).")
 
 
 def _token_valido(recibido):
@@ -133,7 +177,7 @@ def _token_valido(recibido):
 def _decodificar(datos):
     if not datos:
         raise HTTPException(400, "La imagen está vacía.")
-    if len(datos) > MAX_BYTES:
+    if len(datos) > config.MAX_BYTES:
         raise HTTPException(413, "La imagen es demasiado grande.")
     imagen = cv2.imdecode(np.frombuffer(datos, np.uint8), cv2.IMREAD_COLOR)
     if imagen is None:
@@ -141,9 +185,11 @@ def _decodificar(datos):
     return imagen
 
 
+# --- Etapas ---------------------------------------------------------------------------------------------
+
 def leer_placas(imagen):
-    """Detecta y lee las placas. Devuelve (placas, cajas, textos) en el formato del contrato."""
-    cajas = detector.detectar(imagen, umbral=UMBRAL)
+    """M1: detecta y lee las placas, de mayor a menor confianza de lectura."""
+    cajas = detector.detectar(imagen, umbral=config.M1_UMBRAL)
     placas = []
     ocr = lector()
     for x1, y1, x2, y2, conf_det in cajas:
@@ -165,13 +211,12 @@ def leer_placas(imagen):
 
 
 def detectar_vehiculos(imagen):
-    """M2 → lista de {"categoria", "confianza", "caja", "area", "mascara"}; la máscara (bool) y la caja están en
-    coordenadas de la imagen original (retina_masks). `categoria` es el nombre de la clase en `modelo.names`."""
-    if _m2 is None:
+    """M2 → [{"categoria", "clase_modelo", "confianza", "caja", "area", "mascara"}] en coordenadas de la imagen.
+
+    La clase sale de model.names y se traduce con el mapa explícito config.M2_CATEGORIAS."""
+    if not M2.listo:
         return []
-    with _lock_m2:
-        r = _m2.predict(imagen, conf=M2_CONF, imgsz=M2_IMGSZ, device=_m2_dispositivo, retina_masks=True,
-                        verbose=False)[0]
+    r = M2.predecir(imagen, conf=config.M2_CONF, retina_masks=True)
     if r.boxes is None or len(r.boxes) == 0:
         return []
     cajas = r.boxes.xyxy.cpu().numpy()
@@ -180,73 +225,50 @@ def detectar_vehiculos(imagen):
     mascaras = (r.masks.data.cpu().numpy() > 0.5) if r.masks is not None else [None] * len(cajas)
     vehiculos = []
     for i, (caja, clase, conf) in enumerate(zip(cajas, clases, confs)):
-        categoria = str(r.names[int(clase)])  # nombre tal cual se etiquetó en Roboflow
+        nombre = str(r.names[int(clase)])
+        categoria = config.M2_CATEGORIAS.get(nombre)
+        if categoria is None:
+            continue
         x1, y1, x2, y2 = (int(round(float(v))) for v in caja)
         vehiculos.append({
-            "categoria": categoria,
-            "confianza": float(conf),
-            "caja": [x1, y1, x2, y2],
+            "categoria": categoria, "clase_modelo": nombre, "confianza": float(conf), "caja": [x1, y1, x2, y2],
             "area": int(mascaras[i].sum()) if mascaras[i] is not None else (x2 - x1) * (y2 - y1),
             "mascara": mascaras[i],
         })
     return vehiculos
 
 
-def _caja_contiene(vehiculo, punto):
-    x1, y1, x2, y2 = vehiculo["caja"]
-    return x1 <= punto[0] <= x2 and y1 <= punto[1] <= y2
+def detectar_llantas(imagen, caja_recorte):
+    """M3 sobre el recorte del vehículo → llantas en coordenadas de la imagen completa."""
+    x1, y1, x2, y2 = caja_recorte
+    r = M3.predecir(imagen[y1:y2, x1:x2], conf=config.M3_CONF)
+    if r.boxes is None or len(r.boxes) == 0:
+        return []
+    cajas = r.boxes.xyxy.cpu().numpy() + [x1, y1, x1, y1]
+    confs = r.boxes.conf.cpu().numpy()
+    kpts = r.keypoints.data.cpu().numpy() if getattr(r, "keypoints", None) is not None else None
+    llantas = []
+    for i, (caja, conf) in enumerate(zip(cajas, confs)):
+        puntos = None
+        if kpts is not None and len(kpts[i]):
+            puntos = kpts[i].copy()
+            puntos[:, 0] += x1
+            puntos[:, 1] += y1
+        llantas.append(logica.llanta(caja, conf, puntos))
+    return llantas
 
 
-def _mascara_contiene(vehiculo, punto):
-    m = vehiculo.get("mascara")
-    if m is None:
-        return False
-    x, y = int(punto[0]), int(punto[1])
-    return 0 <= y < m.shape[0] and 0 <= x < m.shape[1] and bool(m[y, x])
-
-
-def _centralidad(vehiculo, forma):
-    """1 en el centro de la imagen, ~0 en una esquina (distancia del centro de la caja al centro de la imagen)."""
-    if not forma:
-        return 1.0
-    alto, ancho = forma[:2]
-    x1, y1, x2, y2 = vehiculo["caja"]
-    dx = ((x1 + x2) / 2 - ancho / 2) / (ancho / 2)
-    dy = ((y1 + y2) / 2 - alto / 2) / (alto / 2)
-    return max(0.05, 1 - (dx * dx + dy * dy) ** 0.5 / 2 ** 0.5)
-
-
-def mas_grande_y_centrado(vehiculos, forma=None):
-    """Sin placa de referencia: el vehículo con mayor área ponderada por cercanía al centro de la imagen."""
-    return max(vehiculos, key=lambda v: v["area"] * _centralidad(v, forma)) if vehiculos else None
-
-
-def placa_leida(placas):
-    """La placa que la web toma como lectura: formato boliviano primero, luego mayor confianza de lectura."""
-    if not placas:
-        return None
-    return max(placas, key=lambda p: (bool(p.get("formato_bolivia")), p.get("confianza_lectura") or 0))
-
-
-def vehiculo_de_placa(vehiculos, placa, forma=None):
-    """El vehículo que contiene el centro de la placa; si varios, el que lo tiene dentro de la máscara y, a
-    igualdad, el de mayor área. Si ninguno la contiene, el más grande y centrado."""
-    if not vehiculos:
-        return None
-    x1, y1, x2, y2 = placa["caja"]
-    centro = ((x1 + x2) / 2, (y1 + y2) / 2)
-    candidatos = [v for v in vehiculos if _caja_contiene(v, centro)]
-    if candidatos:
-        return max(candidatos, key=lambda v: (_mascara_contiene(v, centro), v["area"]))
-    return mas_grande_y_centrado(vehiculos, forma)
-
-
-def elegir_vehiculo(vehiculos, placas, forma=None):
-    """Vehículo apuntado: el de la placa leída (ver placa_leida); sin placas, el más grande y centrado."""
-    if not vehiculos:
-        return None
-    placa = placa_leida(placas)
-    return vehiculo_de_placa(vehiculos, placa, forma) if placa else mas_grande_y_centrado(vehiculos, forma)
+def detectar_personas(imagen, caja_recorte):
+    """M4 (solo clase person) sobre el recorte → [{"caja", "confianza", "mascara", "origen"}]."""
+    x1, y1, x2, y2 = caja_recorte
+    r = M4.predecir(imagen[y1:y2, x1:x2], conf=config.M4_CONF, classes=[_persona_id], retina_masks=True)
+    if r.boxes is None or len(r.boxes) == 0:
+        return []
+    cajas = r.boxes.xyxy.cpu().numpy() + [x1, y1, x1, y1]
+    confs = r.boxes.conf.cpu().numpy()
+    mascaras = (r.masks.data.cpu().numpy() > 0.5) if r.masks is not None else [None] * len(cajas)
+    return [{"caja": [int(round(float(v))) for v in caja], "confianza": float(conf), "mascara": mascaras[i],
+             "origen": (x1, y1)} for i, (caja, conf) in enumerate(zip(cajas, confs))]
 
 
 def _datos_vehiculo(v):
@@ -255,40 +277,116 @@ def _datos_vehiculo(v):
             "caja_vehiculo": v["caja"] if v else None}
 
 
-def _anotar(imagen, placas, vehiculo=None):
+def _jpeg(imagen, calidad=80):
+    return "data:image/jpeg;base64," + base64.b64encode(
+        cv2.imencode(".jpg", imagen, [cv2.IMWRITE_JPEG_QUALITY, calidad])[1]).decode()
+
+
+def _anotar(imagen, placas, vehiculo, llantas, personas, ejes, pasajeros):
+    """Imagen anotada. Las personas ya vienen cubiertas (cubrir_personas): solo se escribe el conteo."""
     if vehiculo is not None:
         color = (40, 40, 200)
         m = vehiculo.get("mascara")
         if m is not None and m.shape == imagen.shape[:2]:
-            imagen[m] = (imagen[m] * 0.6 + np.array(color) * 0.4).astype(np.uint8)
             contornos, _ = cv2.findContours(m.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
             cv2.drawContours(imagen, contornos, -1, color, 2, cv2.LINE_AA)
         x1, y1, x2, y2 = vehiculo["caja"]
         cv2.rectangle(imagen, (x1, y1), (x2, y2), color, 2)
         etiqueta = f"{vehiculo['categoria']} {vehiculo['confianza'] * 100:.0f}%"
-        (ancho, alto), _ = cv2.getTextSize(etiqueta, cv2.FONT_HERSHEY_SIMPLEX, 0.8, 2)
+        etiqueta += f" | ejes: {ejes if ejes is not None else '-'} | pasajeros: {pasajeros if pasajeros is not None else '-'}"
+        (ancho, alto), _ = cv2.getTextSize(etiqueta, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)
         y_txt = max(alto + 8, y1)
         cv2.rectangle(imagen, (x1, y_txt - alto - 8), (x1 + ancho + 8, y_txt), color, -1)
-        cv2.putText(imagen, etiqueta, (x1 + 4, y_txt - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2,
+        cv2.putText(imagen, etiqueta, (x1 + 4, y_txt - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2,
                     cv2.LINE_AA)
+    for l in llantas:
+        cx, cy = (int(v) for v in l["centro"])
+        cv2.circle(imagen, (cx, cy), max(3, int(l["alto"] / 2)), (0, 165, 255), 2, cv2.LINE_AA)
     for p in placas:
         x1, y1, x2, y2 = p["caja"]
         cv2.rectangle(imagen, (x1, y1), (x2, y2), (0, 200, 0), 3)
         cv2.putText(imagen, p["texto"] or "?", (x1, max(25, y1 - 8)), cv2.FONT_HERSHEY_SIMPLEX, 0.9,
                     (0, 200, 0), 2, cv2.LINE_AA)
-    jpg = cv2.imencode(".jpg", imagen, [cv2.IMWRITE_JPEG_QUALITY, 80])[1]
-    return "data:image/jpeg;base64," + base64.b64encode(jpg).decode()
+    return _jpeg(imagen)
+
+
+def _publica(llanta):
+    return {k: llanta[k] for k in ("caja", "confianza", "centro", "puntos")}
+
+
+def analizar(img):
+    """Corre M1 → M2 → (M3, M4 sobre el recorte del vehículo principal). Devuelve (respuesta, extras)."""
+    lat = {}
+
+    t = time.perf_counter()
+    placas = leer_placas(img)
+    lat["m1"] = round((time.perf_counter() - t) * 1000)
+
+    t = time.perf_counter()
+    vehiculos = detectar_vehiculos(img)
+    vehiculo = logica.elegir_vehiculo(vehiculos, placas, img.shape)
+    if vehiculos:  # cada placa con SU vehículo: la web muestra el de la placa que realmente lee
+        for p in placas:
+            p.update(_datos_vehiculo(logica.vehiculo_de_placa(vehiculos, p, img.shape)))
+    lat["m2"] = round((time.perf_counter() - t) * 1000) if M2.listo else None
+
+    ejes = pasajeros = None
+    llantas, personas = [], []
+    detalle = {"vehiculos_detectados": len(vehiculos), "clase_modelo": vehiculo["clase_modelo"] if vehiculo else None,
+               "vista": None, "llantas_lado_cercano": 0, "motivo_ejes": ""}
+    lat["m3"] = lat["m4"] = None
+    if vehiculo is None:
+        detalle["motivo_ejes"] = "Sin vehículo principal." if M2.listo else "M2 no está cargado."
+    else:
+        caja_rec = logica.recorte(vehiculo["caja"], img.shape)
+        if M3.listo:
+            t = time.perf_counter()
+            todas = detectar_llantas(img, caja_rec)
+            ejes, llantas, d = logica.contar_ejes(vehiculo["caja"], todas)
+            detalle.update(d)
+            lat["m3"] = round((time.perf_counter() - t) * 1000)
+        else:
+            detalle["motivo_ejes"] = "M3 no está cargado."
+        if M4.listo:
+            t = time.perf_counter()
+            personas = detectar_personas(img, caja_rec)
+            pasajeros = logica.contar_pasajeros(vehiculo["caja"], personas)
+            lat["m4"] = round((time.perf_counter() - t) * 1000)
+
+    leida = next((p for p in placas if p["formato_bolivia"]), None)  # M1 restringido a formato boliviano
+    respuesta = {
+        "placa": leida["texto"] if leida else None,
+        "confianza": leida["confianza_lectura"] if leida else None,
+        **_datos_vehiculo(vehiculo),
+        "ejes": ejes,
+        "llantas_detectadas": len(llantas),
+        "pasajeros": pasajeros,
+        "latencia_ms": lat,
+        "cajas": {
+            "placa": leida["caja"] if leida else None,
+            "vehiculo": vehiculo["caja"] if vehiculo else None,
+            "placas": [p["caja"] for p in placas],
+            "llantas": [_publica(l) for l in llantas],
+            "personas": [p["caja"] for p in personas],  # solo cajas: nunca recortes de rostros
+        },
+        "detalle": detalle,
+        "placas": placas,
+    }
+    return respuesta, {"vehiculo": vehiculo, "llantas": llantas, "personas": personas}
 
 
 @app.get("/salud")
 def salud():
+    m1 = "cargado" if _lector is not None and detector._SESION is not None else "cargando"
     return {
         "estado": "ok",
         "version": VERSION,
-        "modelos": {
-            "m1_placas": "cargado" if _lector is not None and detector._SESION is not None else "cargando",
-            "m2_segmentacion": _m2_estado,
-            "m3_keypoints": "pendiente",
+        "dispositivo": _dispositivo,
+        "modelos": {"m1_placas": m1, **{m.clave: m.estado for m in (M2, M3, M4)}},
+        "detalle_modelos": {
+            "m1_placas": {"estado": m1, "nombre": "Lectura de placas", "archivo": config.M1_DETECTOR.name,
+                          "ocr": config.M1_OCR.name, "tarea": "detect + ocr"},
+            **{m.clave: m.info() for m in (M2, M3, M4)},
         },
         "token_configurado": bool(os.environ.get("IAP_TOKEN")),
         "inferencias": _contador["inferencias"],
@@ -300,31 +398,30 @@ def salud():
 @app.post("/inferir")
 def inferir(imagen: UploadFile = File(...),
             x_api_token: str | None = Header(default=None),
-            anotada: bool = Query(False, description="Devuelve también la imagen con las cajas (más pesado).")):
+            anotada: bool = Query(False, description="Devuelve también la imagen anotada (más pesado).")):
     _token_valido(x_api_token)
     t0 = time.perf_counter()
-    img = _decodificar(imagen.file.read(MAX_BYTES + 1))
+    img = _decodificar(imagen.file.read(config.MAX_BYTES + 1))
     try:
-        placas = leer_placas(img)
-        vehiculos = detectar_vehiculos(img)
-        vehiculo = elegir_vehiculo(vehiculos, placas, img.shape)
-        if vehiculos:  # cada placa con SU vehículo: la web muestra el de la placa que realmente lee
-            for p in placas:
-                p.update(_datos_vehiculo(vehiculo_de_placa(vehiculos, p, img.shape)))
+        respuesta, extra = analizar(img)
     except Exception:  # noqa: BLE001
         _contador["errores"] += 1
         log.exception("Fallo en la inferencia")
         raise HTTPException(500, "Error interno en la inferencia.")
     _contador["inferencias"] += 1
     ms = round((time.perf_counter() - t0) * 1000)
-    log.info("inferir %dx%d → %s · %s en %d ms", img.shape[1], img.shape[0],
-             [p["texto"] for p in placas] or "-", vehiculo["categoria"] if vehiculo else "-", ms)
-    respuesta = {
-        "placas": placas,
-        **_datos_vehiculo(vehiculo),
-        "ejes": None,  # M3 pendiente: nunca se inventa
-        "milisegundos": ms,
-    }
+    respuesta["latencia_ms"]["total"] = ms
+    respuesta["milisegundos"] = ms
+
+    # PRIVACIDAD: la evidencia (y la anotada) llevan a las personas cubiertas con color sólido.
+    respuesta["evidencia"] = None
+    if extra["personas"]:
+        logica.cubrir_personas(img, extra["personas"])
+        respuesta["evidencia"] = _jpeg(img, 85)
     if anotada:
-        respuesta["imagen"] = _anotar(img, placas, vehiculo)
+        respuesta["imagen"] = _anotar(img, respuesta["placas"], extra["vehiculo"], extra["llantas"],
+                                      extra["personas"], respuesta["ejes"], respuesta["pasajeros"])
+    log.info("inferir %dx%d → %s · %s · ejes=%s · pasajeros=%s en %d ms %s", img.shape[1], img.shape[0],
+             respuesta["placa"] or "-", respuesta["categoria"] or "-", respuesta["ejes"], respuesta["pasajeros"],
+             ms, respuesta["latencia_ms"])
     return respuesta

@@ -19,6 +19,8 @@ web/media/
 *.pt
 # ...excepto los modelos de inferencia del repo (el servidor de Colab/RunPod los clona desde GitHub)
 !inferencia/modelos/*.pt
+!inferencia/modelos/archivo/*.pt
+inferencia/modelos/easyocr/
 datasets/
 runs/
 

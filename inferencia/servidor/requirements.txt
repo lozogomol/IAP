@@ -1,11 +1,13 @@
-# Servidor de inferencia IAP (probado con Python 3.12/3.13)
+# Servidor de inferencia IAP (probado con Python 3.12/3.13). Rutas de los modelos: config.py
 fastapi>=0.115
 uvicorn>=0.30
 python-multipart>=0.0.12
+# M1 (placas): detector YOLOv9-t en ONNX + OCR fast-plate-ocr
 onnxruntime>=1.19
 fast-plate-ocr>=1.0,<2
 numpy>=1.26
-# M2 (tipo de vehículo, YOLO11s-seg): misma versión con la que se entrenó m2_seg.pt (trae torch)
+# M2 vehículos (seg), M3 llantas (pose) y M4 pasajeros (seg): misma versión con la que se entrenaron M2 y M3
+# (trae torch). M4 es el YOLO11s-seg de COCO (8.2.100) y carga sin problemas con esta versión.
 ultralytics==8.4.218
 # En Colab ya viene opencv-python; en un servidor sin pantalla usa la versión headless:
 opencv-python-headless>=4.9

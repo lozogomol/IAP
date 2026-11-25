@@ -221,24 +221,24 @@ class RegistrarPasoTests(TestCase):
 
     def test_no_registrada_conserva_categoria_detectada(self):
         paso, _, info = cobro.registrar_paso(self.caseta.id, "6999ZZZ", categoria="moto")
-        self.assertEqual((paso.estado, paso.monto, paso.categoria_detectada), ("no_registrada", Decimal("2"), "moto"))
+        self.assertEqual((paso.estado, paso.monto, paso.categoria_detectada), ("pendiente_pago", Decimal("2"), "moto"))
         self.assertEqual(info["fuente_categoria"], "inferencia")
 
     def test_saldo_insuficiente(self):
         paso, _, _ = cobro.registrar_paso(self.caseta.id, "1987FHK")
-        self.assertEqual((paso.estado, paso.monto), ("saldo_insuficiente", Decimal("4")))  # tarifa no cobrada
+        self.assertEqual((paso.estado, paso.monto), ("pendiente_pago", Decimal("4")))  # paga en efectivo
         self.assertTrue(Alerta.objects.filter(paso=paso, tipo="saldo_insuficiente").exists())
 
     def test_no_registrada_categoria_desconocida(self):
         paso, _, info = cobro.registrar_paso(self.caseta.id, "6999ZZZ")
-        self.assertEqual((paso.estado, paso.monto, paso.categoria_detectada), ("no_registrada", Decimal("0"), ""))
+        self.assertEqual((paso.estado, paso.monto, paso.categoria_detectada), ("pendiente_pago", Decimal("0"), ""))
         d = cobro.paso_a_dict(paso, info)
         self.assertEqual((d["categoria"], d["tarifa"], d["fuente_categoria"]), ("desconocida", None, "desconocida"))
         self.assertTrue(Alerta.objects.filter(paso=paso, tipo="placa_no_registrada").exists())
 
     def test_inactivo_no_se_cobra(self):
         paso, _, _ = cobro.registrar_paso(self.caseta.id, "654TRB")
-        self.assertEqual((paso.estado, paso.monto), ("no_registrada", Decimal("2")))  # tarifa no cobrada
+        self.assertEqual((paso.estado, paso.monto, paso.forma_pago), ("pendiente_pago", Decimal("2"), ""))
         self.assertEqual(Vehiculo.objects.get(placa="654TRB").saldo, Decimal("40"))
 
     def test_antiduplicado_30s(self):
@@ -363,7 +363,7 @@ class FlujoTests(TestCase):
         self.assertEqual((r["accion"], r["motivo"]), ("registrado", "tiempo"))
         p = r["paso"]
         self.assertEqual((p.categoria_detectada, p.ejes_detectados, p.ejes_texto, p.monto, p.estado),
-                         ("auto", None, "2 (estimado)", Decimal("4"), "no_registrada"))
+                         ("auto", None, "2 (estimado)", Decimal("4"), "pendiente_pago"))
         self.assertEqual(r["info"]["fuente_categoria"], "respaldo")
         self.assertEqual(self._f(7, [])["accion"], "fijo")  # una sola vez
 
@@ -392,7 +392,9 @@ class FlujoTests(TestCase):
     def test_alertas_no_registrada_y_saldo_insuficiente(self):
         p1 = self._completo(0, "9999ZZZ")["paso"]
         p2 = self._completo(2, "1987FHK")["paso"]
-        self.assertEqual((p1.estado, p2.estado), ("no_registrada", "saldo_insuficiente"))
+        p1.refresh_from_db()  # al confirmarse la placa de 1987FHK, el paso de 9999ZZZ se cobró en efectivo
+        self.assertEqual((p1.estado, p1.forma_pago, p2.estado), ("cobrado", "efectivo", "pendiente_pago"))
+        self.assertTrue(Alerta.objects.get(paso=p1).atendida)
         self.assertTrue(Alerta.objects.filter(paso=p1, tipo="placa_no_registrada").exists())
         self.assertTrue(Alerta.objects.filter(paso=p2, tipo="saldo_insuficiente").exists())
 
@@ -470,7 +472,7 @@ class ApiFrameTests(TestCase):
                          (3, 1, 4, [[1, 2, 3, 4]]))
         self.assertEqual(lec["latencia_modelos_ms"], {"m1": 1, "m2": 2, "m3": 3, "m4": 4})
         d = ultimo.json()
-        self.assertEqual((d["accion"], d["motivo"], d["mensaje"]), ("registrado", "completo", "Tarifa: 10.00 Bs · Cobrado"))
+        self.assertEqual((d["accion"], d["motivo"], d["mensaje"]), ("registrado", "completo", "Tarifa: 10.00 Bs · Cobrado con saldo"))
         p = d["paso"]
         self.assertEqual((p["categoria"], p["ejes"], p["pasajeros"], p["tarifa"]), ("camion", 3, 1, "10.00"))
         self.assertEqual(base64.b64decode(d["captura"].split(",", 1)[1]), evidencia)
@@ -498,7 +500,7 @@ class ApiFrameTests(TestCase):
         self.assertFalse(Paso.objects.filter(placa_normalizada="3876LBD").exists())  # aún faltan tipo y ejes
         PasoEnCurso.objects.filter(caseta=self.caseta).update(bloqueada_at=timezone.now() - timedelta(seconds=7))
         d = self._frame([]).json()
-        self.assertEqual((d["accion"], d["mensaje"]), ("registrado", "Tarifa: 4.00 Bs · Cobrado"))
+        self.assertEqual((d["accion"], d["mensaje"]), ("registrado", "Tarifa: 4.00 Bs · Cobrado con saldo"))
         p = d["paso"]
         self.assertEqual((p["placa"], p["estado"], p["tarifa"], p["categoria"], p["ejes"], p["ejes_texto"],
                           p["fuente_categoria"]), ("3876LBD", "cobrado", "4.00", "auto", None, "2 (estimado)", "registro"))
@@ -510,14 +512,14 @@ class ApiFrameTests(TestCase):
 
     def test_alerta_en_el_mensaje(self):
         d = self._pasar([_lectura("9999ZZZ", 0.9)])[1].json()
-        self.assertEqual(d["mensaje"], "Tarifa: 4.00 Bs · No cobrado: placa no registrada")  # sin tipo: "auto"
+        self.assertEqual(d["mensaje"], "Tarifa: 4.00 Bs · Pendiente de pago (no registrada)")  # sin tipo: "auto"
 
     def test_misma_placa_queda_fija_y_no_cobra_otra_vez(self):
         registro = self._pasar([_lectura("3876LBD", 0.9)])[1].json()
         for _ in range(20):  # muchos frames de la misma placa (y alguno sin placa): mismo resultado, sin otro paso
             d = self._frame([_lectura("3876LBD", 0.95)]).json()
             self.assertEqual((d["accion"], d["paso"]["id"], d["mensaje"]),
-                             ("fijo", registro["paso"]["id"], "Tarifa: 4.00 Bs · Cobrado"))
+                             ("fijo", registro["paso"]["id"], "Tarifa: 4.00 Bs · Cobrado con saldo"))
             self.assertEqual(d["flujo"]["etapa"], "registrado")
         self.assertEqual(self._frame([]).json()["accion"], "fijo")
         self.assertEqual(Paso.objects.filter(placa_normalizada="3876LBD", caseta=self.caseta).count(), 1)
@@ -739,9 +741,9 @@ class TarifaSiempreTests(TestCase):
     def test_monto_guardado_en_los_3_estados(self):
         Vehiculo.objects.filter(placa="3876LBD").update(saldo=Decimal("100"))
         Vehiculo.objects.filter(placa="1987FHK").update(saldo=Decimal("1"))
-        casos = (("3876LBD", "cobrado", "Cobrado", Decimal("90")),
-                 ("1987FHK", "saldo_insuficiente", "No cobrado: saldo insuficiente", Decimal("1")),
-                 ("7777XYZ", "no_registrada", "No cobrado: placa no registrada", None))
+        casos = (("3876LBD", "cobrado", "Cobrado con saldo", Decimal("90")),
+                 ("1987FHK", "pendiente_pago", "Pendiente de pago (saldo insuficiente)", Decimal("1")),
+                 ("7777XYZ", "pendiente_pago", "Pendiente de pago (no registrada)", None))
         for placa, estado, texto, saldo in casos:
             paso, _, info = cobro.registrar_paso(self.caseta.id, placa, categoria="camion", ejes=3)
             self.assertEqual((paso.estado, paso.monto), (estado, Decimal("10")), placa)
@@ -754,7 +756,7 @@ class TarifaSiempreTests(TestCase):
     def test_dos_ejes_detectados_muestra_monto_aunque_no_este_registrada(self):
         paso, _, info = cobro.registrar_paso(self.caseta.id, "5555ABC", categoria="auto", ejes=2)
         d = cobro.paso_a_dict(paso, info)
-        self.assertEqual((paso.estado, d["tarifa"], d["ejes_texto"]), ("no_registrada", "4.00", "2"))
+        self.assertEqual((paso.estado, d["tarifa"], d["ejes_texto"]), ("pendiente_pago", "4.00", "2"))
 
     def test_sin_ejes_detectados_es_2_estimado(self):
         paso, _, info = cobro.registrar_paso(self.caseta.id, "5555ABC", categoria="bus")
@@ -779,12 +781,12 @@ class TarifaSiempreTests(TestCase):
         cobro.registrar_paso(self.caseta.id, "7777XYZ", categoria="auto")
         r = self.client.get("/pasos")
         self.assertContains(r, "Tarifa: 4,00 Bs")  # formato local (es)
-        self.assertContains(r, "No cobrado: placa no registrada")
+        self.assertContains(r, "Pendiente de pago (no registrada)")
         self.assertContains(r, "2 (estimado)")
         self.assertEqual(self.client.get("/").status_code, 200)  # el panel carga con la nueva fila
         c = cobro.consultar_placa("7777XYZ")["ultimo_paso"]
         self.assertEqual((c["tarifa"], c["resultado_texto"], c["ejes_texto"]),
-                         ("4.00", "No cobrado: placa no registrada", "2 (estimado)"))
+                         ("4.00", "Pendiente de pago (no registrada)", "2 (estimado)"))
 
 
 JPEG_REAL = Path(settings.BASE_DIR).parent / "docs" / "metricas" / "m2" / "labels.jpg"
@@ -829,7 +831,7 @@ class FrameProduccionTests(TestCase):
         PasoEnCurso.objects.filter(caseta=self.caseta).update(bloqueada_at=timezone.now() - timedelta(seconds=7))
         d = self._frame()
         self.assertEqual((d["accion"], d["paso"]["categoria"], d["paso"]["ejes_texto"], d["paso"]["estado"]),
-                         ("registrado", "auto", "2 (estimado)", "no_registrada"))
+                         ("registrado", "auto", "2 (estimado)", "pendiente_pago"))
         self.assertEqual(self._frame()["accion"], "fijo")
         self.assertEqual(Paso.objects.count(), 2)
 

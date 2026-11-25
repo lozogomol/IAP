@@ -20,6 +20,7 @@ from django.views.decorators.http import require_POST
 
 from .auth import (TokenGoogleInvalido, cerrar_sesion, datos_token_google, iniciar_sesion, login_requerido,
                    rol_requerido, usuario_autorizado)
+from . import cobro
 from . import panel as panel_mod
 from . import tiempo_real
 from .forms import VehiculoForm
@@ -214,7 +215,7 @@ def pasos(request):
         fecha = parse_date(request.GET.get("fecha", ""))
     except ValueError:
         fecha = None
-    lista = Paso.objects.select_related("caseta").order_by("-created_at")
+    lista = Paso.objects.select_related("caseta").prefetch_related("alertas").order_by("-created_at")
     if q:
         lista = lista.filter(placa_normalizada__icontains=q)
     if fecha:
@@ -227,7 +228,7 @@ def pasos(request):
 def alertas(request):
     filtro = "atendidas" if request.GET.get("filtro") == "atendidas" else "pendientes"
     lista = (Alerta.objects.select_related("paso").filter(atendida=filtro == "atendidas")
-             .order_by("-created_at")[:200])
+             .order_by("-atendida_at" if filtro == "atendidas" else "-created_at", "-created_at")[:200])
     return render(request, "peaje/alertas.html", {
         "alertas": lista, "filtro": filtro,
         "n_pendientes": Alerta.objects.filter(atendida=False).count(),
@@ -237,9 +238,11 @@ def alertas(request):
 @require_POST
 @login_requerido
 def alerta_atender(request, pk):
-    if Alerta.objects.filter(pk=pk, atendida=False).update(atendida=True):
-        messages.success(request, "Alerta marcada como atendida.")
-        tiempo_real.notificar("kpis", {"kpis": panel_mod.kpis()})
+    """Marcar atendida = el operador cobró en efectivo: el paso pendiente pasa a cobrado (efectivo)."""
+    alerta = Alerta.objects.select_related("paso").filter(pk=pk).first()
+    if alerta and cobro.atender_alerta(alerta):
+        messages.success(request, f"Alerta atendida: {alerta.paso.placa_normalizada} cobrado en efectivo.")
+        panel_mod.publicar_pago(alerta.paso)
     return redirect("alertas")
 
 

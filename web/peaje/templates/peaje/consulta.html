@@ -74,6 +74,8 @@
       fila("Tipo", u.categoria_texto || "Sin tipo");
       fila("Ejes", u.ejes_texto || "–");
       fila("Tarifa", u.tarifa != null ? u.tarifa + " Bs" : "–");
+      fila("Estado", u.estado_texto);
+      fila("Forma de pago", u.forma_pago_texto || "Pendiente");
       fila("Resultado", u.resultado_texto || u.estado_texto);
     } else {
       fila("Pasos", c.vehiculo ? "No tiene pasos registrados" : "La placa no está registrada y no tiene pasos");

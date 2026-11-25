@@ -2,7 +2,9 @@
 
 Eventos en el canal `private-peaje`:
 - `paso`: {"paso": {...}, "alerta": {...} | null, "kpis": {...}, "grafica": {...}}
-- `kpis`: {"kpis": {...}} (p. ej. al marcar una alerta como atendida)
+- `pago`: {"paso": {...}, "alerta": {"id", "tipo", "nota"} | null, "kpis": {...}} (un paso pendiente se cobró en
+  efectivo: al pasar el siguiente vehículo o al atender su alerta)
+- `kpis`: {"kpis": {...}}
 """
 import hashlib
 import hmac

@@ -45,7 +45,9 @@ def _ms(t0):
         "a los 6 s del bloqueo (con respaldos: tipo del registro, clase más vista o 'auto'; 2 ejes estimados), se "
         "registra y cobra una sola vez. (f) El resultado queda FIJO (`accion: fijo`) mientras se vea la misma placa "
         "o ninguna; solo una placa distinta confirmada inicia otro vehículo. La misma placa vuelve a cobrarse tras "
-        "otra placa distinta o 10 min sin verla. "
+        "otra placa distinta o 10 min sin verla. Placa no registrada o con saldo insuficiente: el paso queda "
+        "`pendiente_pago` (con su alerta) y, al confirmarse la placa del siguiente vehículo, pasa a `cobrado` con "
+        "forma de pago `efectivo`; ese paso resuelto llega en `anterior`. "
         "Respuesta: `accion` `sin_placa` | `esperando_confirmacion` | `en_curso` | `registrado` | `fijo` | "
         "`error`; `flujo` {etapa, placa, placa_bloqueada, tipo, tipo_texto, tipo_listo, ejes, ejes_listo, pasajeros, "
         "pasajeros_listo, segundos}; `lectura` (resultado de ESTE frame: placa, confianza, categoria, ejes, "
@@ -121,6 +123,10 @@ def _paso_frame(request):
     }
     r = flujo.procesar_frame(caseta, lecturas, vehiculo, imagen, usuario=request.user)
     accion, estado_flujo = r["accion"], r["flujo"]
+    if r.get("resuelto"):
+        # Llegó el siguiente vehículo: el paso anterior pendiente se cobró en efectivo (panel y alertas en vivo).
+        panel.publicar_pago(r["resuelto"])
+        responder = _con_anterior(responder, r["resuelto"])
     if accion == "sin_placa":
         return responder("sin_placa", "Buscando placa…", lectura, flujo=estado_flujo)
     if accion == "esperando_confirmacion":
@@ -141,6 +147,12 @@ def _paso_frame(request):
     return responder("registrado", _mensaje_cobro(paso), lectura, flujo=estado_flujo,
                      paso=cobro.paso_a_dict(paso, r["info"]), motivo=r["motivo"],
                      captura=("data:image/jpeg;base64," + base64.b64encode(evidencia).decode()) if evidencia else None)
+
+
+def _con_anterior(responder, paso):
+    def envuelto(*args, **kwargs):
+        return responder(*args, anterior=cobro.paso_a_dict(paso), **kwargs)
+    return envuelto
 
 
 MENSAJE_ETAPA = {

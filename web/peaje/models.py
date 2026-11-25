@@ -77,12 +77,20 @@ class Tarifa(models.Model):
 
 
 class Paso(models.Model):
+    """Un vehículo que pasó por un punto de cobro. Caseta real: si pasó, pagó.
+
+    - Registrada con saldo suficiente: "cobrado" con forma_pago "saldo" (se descuenta el saldo).
+    - No registrada o con saldo insuficiente: "pendiente_pago" (forma_pago vacía) + su alerta en tiempo real; pasa a
+      "cobrado" con forma_pago "efectivo" cuando se confirma la placa del siguiente vehículo en ese punto de cobro o
+      cuando el operador atiende la alerta (ver cobro.cobrar_en_efectivo). No se toca el saldo.
+    """
+
     ESTADOS = [
         ("cobrado", "Cobrado"),
-        ("saldo_insuficiente", "Saldo insuficiente"),
-        ("no_registrada", "Placa no registrada"),
+        ("pendiente_pago", "Pendiente de pago"),
         ("error_lectura", "Error de lectura"),
     ]
+    FORMAS_PAGO = [("saldo", "Saldo"), ("efectivo", "Efectivo")]
 
     placa_leida = models.CharField(max_length=20)
     placa_normalizada = models.CharField(max_length=10, db_index=True)
@@ -94,6 +102,7 @@ class Paso(models.Model):
     usuario = models.ForeignKey(Usuario, on_delete=models.SET_NULL, null=True, blank=True, related_name="pasos")
     imagen_url = models.URLField(max_length=500, null=True, blank=True)
     estado = models.CharField(max_length=20, choices=ESTADOS)
+    forma_pago = models.CharField(max_length=10, choices=FORMAS_PAGO, blank=True, default="")  # vacía = pendiente
     pasajeros = models.PositiveSmallIntegerField(null=True, blank=True)  # M4: conteo de pasajeros (null = sin dato)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -110,6 +119,16 @@ class Paso(models.Model):
         return self.estado == "cobrado"
 
     @property
+    def pendiente(self):
+        return self.estado == "pendiente_pago"
+
+    @property
+    def motivo_pendiente(self):
+        """Tipo de alerta del paso (placa_no_registrada | saldo_insuficiente), o "" si no tiene."""
+        alerta = next(iter(self.alertas.all()), None)  # usa prefetch_related("alertas") si lo hay
+        return alerta.tipo if alerta else ""
+
+    @property
     def tarifa(self):
         """Tarifa del paso en Bs, o None si no se pudo calcular (sin tipo de vehículo)."""
         return self.monto if self.monto or self.categoria_detectada else None
@@ -120,7 +139,13 @@ class Paso(models.Model):
 
     @property
     def resultado_texto(self):
-        return RESULTADO_COBRO.get(self.estado, self.get_estado_display())
+        """"Cobrado con saldo" | "Cobrado en efectivo" | "Pendiente de pago (no registrada)" | ..."""
+        if self.cobrado:
+            return {"saldo": "Cobrado con saldo", "efectivo": "Cobrado en efectivo"}.get(self.forma_pago, "Cobrado")
+        if self.pendiente:
+            motivo = MOTIVO_PENDIENTE.get(self.motivo_pendiente)
+            return f"Pendiente de pago ({motivo})" if motivo else "Pendiente de pago"
+        return "No cobrado: error de lectura"
 
     @property
     def ejes_tarifa(self):
@@ -132,12 +157,7 @@ class Paso(models.Model):
         return "2 (estimado)" if self.ejes_detectados is None else str(self.ejes_tarifa)
 
 
-RESULTADO_COBRO = {
-    "cobrado": "Cobrado",
-    "saldo_insuficiente": "No cobrado: saldo insuficiente",
-    "no_registrada": "No cobrado: placa no registrada",
-    "error_lectura": "No cobrado: error de lectura",
-}
+MOTIVO_PENDIENTE = {"placa_no_registrada": "no registrada", "saldo_insuficiente": "saldo insuficiente"}
 
 
 class Alerta(models.Model):
@@ -148,6 +168,8 @@ class Alerta(models.Model):
 
     paso = models.ForeignKey(Paso, on_delete=models.CASCADE, related_name="alertas")
     tipo = models.CharField(max_length=20, choices=TIPOS)
+    nota = models.CharField(max_length=120, blank=True, default="")  # cómo se resolvió
+    atendida_at = models.DateTimeField(null=True, blank=True)
     atendida = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 

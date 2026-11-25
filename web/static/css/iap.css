@@ -247,6 +247,8 @@ a.kpi:hover { color: #fff; text-decoration: none; box-shadow: var(--sombra-alta)
 .kpi-cab .ico { width: 20px; height: 20px; color: #fff; }
 .kpi-valor { font-size: 2.75rem; font-weight: 300; line-height: 1; letter-spacing: -.03em; color: #fff; font-variant-numeric: tabular-nums; }
 .kpi-valor small { font-size: .4em; font-weight: 600; margin-right: 6px; vertical-align: .55em; }
+.kpi-desglose { margin-top: -8px; font-size: var(--t-xs); color: rgba(255, 255, 255, .75); font-variant-numeric: tabular-nums; }
+.kpi-desglose b { font-weight: 600; color: #fff; }
 .kpi-tipos { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; font-size: var(--t-sm); }
 .kpi-tipos li { display: grid; grid-template-columns: 64px minmax(0, 1fr) 28px; align-items: center; gap: var(--e-2); font-weight: 400; }
 .kpi-tipos b { font-weight: 700; text-align: right; font-variant-numeric: tabular-nums; }
@@ -301,6 +303,8 @@ a.kpi:hover { color: #fff; text-decoration: none; box-shadow: var(--sombra-alta)
 .e-cobrado::before, .e-habilitada::before, .etiqueta.verde::before { background: var(--c-exito); }
 .e-saldo_insuficiente, .etiqueta.ambar { color: var(--c-ambar-texto); background: var(--c-ambar-suave); border-color: rgba(217, 119, 6, .3); }
 .e-saldo_insuficiente::before, .etiqueta.ambar::before { background: var(--c-ambar); }
+.e-pendiente_pago { color: var(--c-ambar-texto); background: var(--c-ambar-suave); border-color: rgba(217, 119, 6, .3); }
+.e-pendiente_pago::before { background: var(--c-ambar); }
 .e-no_registrada, .e-placa_no_registrada, .etiqueta.roja { color: var(--c-peligro-texto); background: var(--c-peligro-suave); border-color: rgba(220, 38, 38, .3); }
 .e-no_registrada::before, .e-placa_no_registrada::before, .etiqueta.roja::before { background: var(--c-peligro); }
 
@@ -426,6 +430,10 @@ dialog[open] { animation: entrar 150ms ease-out; }
 .resultado-cobro.alerta { background: var(--c-peligro-suave); border-left-color: var(--c-peligro); color: var(--c-peligro-texto); }
 .resultado-cobro.ambar { background: var(--c-ambar-suave); border-left-color: var(--c-ambar); color: var(--c-ambar-texto); }
 .resultado-cobro.nuevo { animation: entrar 300ms ease-out; }
+.anterior-cobro { margin: 8px 0 0; padding: 6px 12px; font-size: var(--t-xs); font-weight: 600; color: var(--c-exito-texto);
+                  background: var(--c-exito-suave); border-left: 3px solid var(--c-exito); }
+.anterior-cobro[hidden] { display: none; }
+.resolucion-hora { display: block; margin-top: 4px; }
 .resultado-textos { display: flex; flex-direction: column; min-width: 0; }
 .resultado-linea { display: block; margin-top: 2px; font-size: var(--t-xs); font-weight: 600; white-space: nowrap; }
 .resultado-linea[hidden] { display: none; }

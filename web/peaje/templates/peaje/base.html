@@ -221,6 +221,7 @@
         document.dispatchEvent(new CustomEvent("iap:paso", { detail: d }));
       });
       canal.bind("kpis", function (d) { document.dispatchEvent(new CustomEvent("iap:kpis", { detail: d })); });
+      canal.bind("pago", function (d) { document.dispatchEvent(new CustomEvent("iap:pago", { detail: d })); });
     })();
   </script>
   {% endif %}

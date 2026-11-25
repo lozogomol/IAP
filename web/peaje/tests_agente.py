@@ -29,9 +29,9 @@ class Datos(TestCase):
         caseta = caseta_principal()
         # 3876LBD: registrada con paso · 2451KTP: registrada sin pasos · 5555XYZ: pasó sin registro · 9999ZZZ: nada
         Paso.objects.create(placa_leida="3876LBD", placa_normalizada="3876LBD", caseta=caseta, estado="cobrado",
-                            categoria_detectada="auto", ejes_detectados=2, monto=Decimal("4"),
+                            forma_pago="saldo", categoria_detectada="auto", ejes_detectados=2, monto=Decimal("4"),
                             imagen_url="/capturas/2026/11/paso_1.jpg")
-        Paso.objects.create(placa_leida="5555XYZ", placa_normalizada="5555XYZ", caseta=caseta, estado="no_registrada",
+        Paso.objects.create(placa_leida="5555XYZ", placa_normalizada="5555XYZ", caseta=caseta, estado="pendiente_pago",
                             categoria_detectada="camion", ejes_detectados=None, monto=Decimal("8"))
         Paso.objects.filter(placa_normalizada="2451KTP").delete()
 
@@ -43,7 +43,7 @@ class HerramientasTests(Datos):
         self.assertEqual(con["estado"], "registrada_con_paso")
         up = con["ultimo_paso"]
         self.assertEqual((up["punto_de_cobro"], up["tipo"], up["ejes"], up["tarifa_bs"], up["resultado"]),
-                         ("Peaje IAP", "Auto", "2", "4.00", "Cobrado"))
+                         ("Peaje IAP", "Auto", "2", "4.00", "Cobrado con saldo"))
         self.assertRegex(up["fecha"], r"^\d{2}/\d{2}/\d{4}$")
         self.assertRegex(up["hora"], r"^\d{2}:\d{2}:\d{2}$")
         self.assertEqual(agente.consultar_placa("2451KTP")["estado"], "registrada_sin_paso")
@@ -101,7 +101,7 @@ class AgenteReglasTests(Datos):
             self.assertEqual((r["estado"], r["motor"]), (estado, "reglas"), texto)
             self.assertIn(frase, r["respuesta"], texto)
         r = agente.responder("¿Pasó la placa 3876LBD?")
-        self.assertIn("tarifa 4.00 Bs (Cobrado)", r["respuesta"])
+        self.assertIn("tarifa 4.00 Bs (Cobrado con saldo)", r["respuesta"])
         self.assertIn("en Peaje IAP", r["respuesta"])
 
     def test_normalizacion_en_el_texto(self):
@@ -251,10 +251,10 @@ class PasosPorFechaYResumenTests(Dia):
         self.assertEqual((d["fecha"], d["total"], d["mostrados"]),
                          (timezone.localdate().strftime("%d/%m/%Y"), 2, 2))
         self.assertEqual([p["placa"] for p in d["pasos"]], ["5555XYZ", "3876LBD"])  # más reciente primero
-        self.assertEqual((d["pasos"][1]["tarifa_bs"], d["pasos"][1]["resultado"]), ("4.00", "Cobrado"))
+        self.assertEqual((d["pasos"][1]["tarifa_bs"], d["pasos"][1]["resultado"]), ("4.00", "Cobrado con saldo"))
         self.assertIn("pasaron 2 vehículos", r["respuesta"])
-        self.assertIn("3876LBD · Auto · 2 ejes · 4.00 Bs · Cobrado", r["respuesta"])
-        self.assertIn("5555XYZ · Camión · 2 (estimado) ejes · 8.00 Bs · No cobrado: placa no registrada",
+        self.assertIn("3876LBD · Auto · 2 ejes · 4.00 Bs · Cobrado con saldo", r["respuesta"])
+        self.assertIn("5555XYZ · Camión · 2 (estimado) ejes · 8.00 Bs · Pendiente de pago (no registrada)",
                       r["respuesta"])
 
     def test_cuanto_se_recaudo_hoy_usa_resumen_dia(self):

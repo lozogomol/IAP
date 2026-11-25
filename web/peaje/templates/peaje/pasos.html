@@ -26,6 +26,7 @@
         <th scope="col">Pasajeros</th>
         <th scope="col" class="derecha">Tarifa</th>
         <th scope="col">Estado</th>
+        <th scope="col">Forma de pago</th>
         <th scope="col">Hora</th>
       </tr>
     </thead>
@@ -45,10 +46,11 @@
         <td data-label="Pasajeros" class="num">{{ p.pasajeros|default_if_none:"–" }}</td>
         <td data-label="Tarifa" class="derecha num">Tarifa: {% if p.tarifa is not None %}{{ p.tarifa }} Bs{% else %}–{% endif %}<span class="resultado-linea {% if p.cobrado %}ok{% else %}no{% endif %}">{{ p.resultado_texto }}</span></td>
         <td data-label="Estado"><span class="etiqueta e-{{ p.estado }}">{{ p.get_estado_display }}</span></td>
+        <td data-label="Forma de pago">{{ p.get_forma_pago_display|default:"–" }}</td>
         <td data-label="Hora" class="num">{{ p.created_at|date:"d/m/Y H:i:s" }}</td>
       </tr>
       {% empty %}
-      <tr class="fila-vacia"><td colspan="8" class="vacio-celda">
+      <tr class="fila-vacia"><td colspan="9" class="vacio-celda">
         {% include "peaje/_vacio.html" with titulo="Sin pasos registrados" %}
       </td></tr>
       {% endfor %}

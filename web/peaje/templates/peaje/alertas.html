@@ -2,7 +2,7 @@
 {% load iconos %}
 {% block titulo %}Alertas{% endblock %}
 {% block h1 %}Alertas{% endblock %}
-{% block subtitulo %}Placas no registradas y saldo insuficiente{% endblock %}
+{% block subtitulo %}Placas no registradas y saldo insuficiente: se resuelven al cobrar en efectivo{% endblock %}
 {% block acciones %}
 <nav class="segmentos" aria-label="Filtrar alertas">
   <a href="/alertas" {% if filtro == "pendientes" %}class="activo" aria-current="page"{% endif %}>Pendientes{% if n_pendientes %}<span class="contador">{{ n_pendientes }}</span>{% endif %}</a>
@@ -19,7 +19,8 @@
         <th scope="col">Placa</th>
         <th scope="col">Tipo</th>
         <th scope="col">Hora</th>
-        <th scope="col">{% if filtro == "pendientes" %}Acción{% else %}Estado{% endif %}</th>
+        <th scope="col" class="derecha">Tarifa</th>
+        <th scope="col">{% if filtro == "pendientes" %}Acción{% else %}Resolución{% endif %}</th>
       </tr>
     </thead>
     <tbody>
@@ -35,16 +36,20 @@
         <td data-label="Placa" class="placa">{{ a.paso.placa_normalizada }}</td>
         <td data-label="Tipo"><span class="etiqueta e-{{ a.tipo }}">{{ a.get_tipo_display }}</span></td>
         <td data-label="Hora" class="num">{{ a.created_at|date:"d/m/Y H:i:s" }}</td>
-        <td data-label="{% if a.atendida %}Estado{% else %}Acción{% endif %}">
-          {% if a.atendida %}<span class="etiqueta gris">Atendida</span>{% else %}
+        <td data-label="Tarifa" class="derecha num">{% if a.paso.tarifa is not None %}{{ a.paso.tarifa }} Bs{% else %}–{% endif %}</td>
+        <td data-label="{% if a.atendida %}Resolución{% else %}Acción{% endif %}">
+          {% if a.atendida %}
+          <span class="etiqueta verde">{{ a.nota|default:"Atendida" }}</span>
+          {% if a.atendida_at %}<span class="tenue pequeno resolucion-hora">{{ a.atendida_at|date:"d/m/Y H:i:s" }}</span>{% endif %}
+          {% else %}
           <form method="post" action="/alertas/{{ a.id }}/atender">{% csrf_token %}
-            <button class="boton chico primario" type="submit">{% icono "check" %}Marcar atendida</button>
+            <button class="boton chico primario" type="submit" title="El operador cobró en efectivo">{% icono "check" %}Marcar atendida</button>
           </form>
           {% endif %}
         </td>
       </tr>
       {% empty %}
-      <tr class="fila-vacia"><td colspan="5" class="vacio-celda">
+      <tr class="fila-vacia"><td colspan="6" class="vacio-celda">
         {% if filtro == "pendientes" %}{% include "peaje/_vacio.html" with titulo="No hay alertas pendientes" %}
         {% else %}{% include "peaje/_vacio.html" with titulo="Sin alertas atendidas" %}{% endif %}
       </td></tr>
@@ -54,10 +59,9 @@
 </div>
 {% endblock %}
 {% block scripts %}
-{% if filtro == "pendientes" %}
 <script>
-  // Si llega una alerta nueva mientras se mira la lista de pendientes, se recarga para mostrarla.
-  document.addEventListener("iap:paso", function (e) { if (e.detail.alerta) setTimeout(function () { location.reload(); }, 1500); });
+  // Tiempo real: una alerta nueva o una alerta resuelta (cobro en efectivo) recarga la lista.
+  {% if filtro == "pendientes" %}document.addEventListener("iap:paso", function (e) { if (e.detail.alerta) setTimeout(function () { location.reload(); }, 1500); });{% endif %}
+  document.addEventListener("iap:pago", function () { setTimeout(function () { location.reload(); }, 800); });
 </script>
-{% endif %}
 {% endblock %}

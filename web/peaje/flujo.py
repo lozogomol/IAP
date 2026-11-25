@@ -9,7 +9,8 @@ Máquina de estados por caseta (fila PasoEnCurso), alimentada por los frames de 
               del vehículo registrado; si no está registrado, la clase M2 más vista; si nunca se vio, "auto". Si
               faltan los ejes: 2 (mínimo de la categoría), marcados como estimados (ejes_detectados = null).
   RESULTADO   El paso registrado queda FIJO. Mientras se vea la misma placa o ninguna, no se recalcula ni se
-  FIJO        registra nada. Solo una placa DISTINTA confirmada por votación inicia un vehículo nuevo.
+  FIJO        registra nada. Solo una placa DISTINTA confirmada por votación inicia un vehículo nuevo; en ese
+              momento, si el paso anterior quedó "pendiente_pago", se cobra en efectivo (cobro.cobrar_en_efectivo).
               La misma placa vuelve a cobrarse solo después de otra placa distinta o tras 10 min sin verla.
 """
 from datetime import timedelta
@@ -214,7 +215,7 @@ def _registrar(estado, usuario, ahora, motivo):
 def procesar_frame(caseta, lecturas, vehiculo, imagen, usuario=None, ahora=None):
     """Avanza la máquina de estados de la caseta con un frame ya inferido.
 
-    Devuelve {"accion", "flujo", "paso", "info", "evidencia", "motivo", "votos"}; accion: sin_placa |
+    Devuelve {"accion", "flujo", "paso", "info", "evidencia", "motivo", "votos", "resuelto"}; accion: sin_placa |
     esperando_confirmacion | en_curso | registrado | fijo.
     """
     ahora = ahora or timezone.now()
@@ -264,15 +265,20 @@ def _avanzar(estado, caseta, lecturas, vehiculo, imagen, usuario, ahora):
             return {**_resultado_fijo(fijo), "votos": votos, "candidata": mejor["placa"]}
         return {"accion": "esperando_confirmacion", "votos": votos, "flujo": flujo_dict(estado, ahora)}
 
-    # Placa distinta confirmada: vehículo nuevo.
+    # Placa distinta confirmada: vehículo nuevo. Si el anterior quedó pendiente de pago, pagó en efectivo al irse.
+    anterior = estado.paso
+    resuelto = anterior if anterior and cobro.cobrar_en_efectivo(anterior, cobro.NOTA_SIGUIENTE, ahora) else None
     _bloquear_placa(estado, voto, ahora)
     if mejor["placa"] == estado.placa:
         estado.evidencia = vehiculo.get("evidencia") or imagen
         estado.evidencia_confianza = mejor["confianza"] or 0
         estado.texto_leido = (mejor["texto_leido"] or mejor["placa"])[:20]
     cobro.limpiar_lecturas_viejas()
-    return (_cerrar_si_listo(estado, usuario, ahora)
-            or {"accion": "en_curso", "flujo": flujo_dict(estado, ahora), "votos": voto["votos"]})
+    r = (_cerrar_si_listo(estado, usuario, ahora)
+         or {"accion": "en_curso", "flujo": flujo_dict(estado, ahora), "votos": voto["votos"]})
+    if resuelto:
+        r["resuelto"] = resuelto
+    return r
 
 
 def _cerrar_si_listo(estado, usuario, ahora):

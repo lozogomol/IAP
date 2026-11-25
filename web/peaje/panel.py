@@ -40,6 +40,8 @@ def resumen_paso(paso):
         "monto": f"{paso.monto:.2f}",
         "tarifa": f"{paso.tarifa:.2f}" if paso.tarifa is not None else None,
         "cobrado": paso.cobrado,
+        "forma_pago": paso.forma_pago,
+        "motivo_pendiente": paso.motivo_pendiente if paso.pendiente else "",
         "resultado_texto": paso.resultado_texto,
         "hora": local.strftime("%H:%M:%S"),
         "fecha": local.strftime("%d/%m/%Y"),
@@ -49,11 +51,15 @@ def resumen_paso(paso):
 
 def kpis():
     hoy = Paso.objects.filter(created_at__gte=_inicio_dia(timezone.localdate()))
-    # Solo lo cobrado: en los demás pasos el monto es la tarifa que no se pudo cobrar.
-    recaudado = hoy.filter(estado="cobrado").aggregate(t=Sum("monto"))["t"] or Decimal("0")
+    # Recaudación = todos los pasos cobrados (con saldo + en efectivo); los pendientes aún no suman.
+    por_forma = dict(hoy.filter(estado="cobrado").order_by().values_list("forma_pago").annotate(t=Sum("monto")))
+    saldo, efectivo = por_forma.get("saldo") or Decimal("0"), por_forma.get("efectivo") or Decimal("0")
+    recaudado = sum(por_forma.values(), Decimal("0"))
     return {
         "pasos_hoy": hoy.count(),
         "recaudacion_hoy": f"{recaudado:.2f}",
+        "recaudacion_saldo": f"{saldo:.2f}",
+        "recaudacion_efectivo": f"{efectivo:.2f}",
         "alertas_pendientes": Alerta.objects.filter(atendida=False).count(),
         "por_tipo": por_tipo(hoy),
     }
@@ -84,7 +90,7 @@ def grafica(dias=7):
 
 
 def ultimos_pasos(n=10):
-    return [resumen_paso(p) for p in Paso.objects.order_by("-created_at")[:n]]
+    return [resumen_paso(p) for p in Paso.objects.prefetch_related("alertas").order_by("-created_at")[:n]]
 
 
 def datos_panel():
@@ -99,6 +105,16 @@ def evento_paso(paso):
         "kpis": kpis(),
         "grafica": grafica(),
     }
+
+
+def publicar_pago(paso):
+    """Un paso pendiente se cobró en efectivo: el panel y las alertas se actualizan sin recargar."""
+    alerta = paso.alertas.order_by("-atendida_at").first()
+    tiempo_real.notificar("pago", {
+        "paso": resumen_paso(paso),
+        "alerta": {"id": alerta.id, "tipo": alerta.tipo, "nota": alerta.nota} if alerta else None,
+        "kpis": kpis(),
+    })
 
 
 # --- Capturas --------------------------------------------------------------------------------------

@@ -65,6 +65,9 @@ Reglas:
   de vehículo, ejes ni cantidades. Si un dato no está en la respuesta de la herramienta, di que no lo tienes.
 - Estados de una placa: registrada_con_paso (da fecha, hora, punto de cobro, tipo, ejes, tarifa y si se cobró),
   registrada_sin_paso, identificada_no_registrada (pasó sin estar registrada: posible evasión) y no_existe.
+  El estado de la placa depende solo del registro de vehículos: una placa no registrada sigue siendo
+  identificada_no_registrada aunque su paso se haya cobrado en efectivo. Di siempre si el último paso se cobró y
+  cómo (campo resultado: "Cobrado con saldo", "Cobrado en efectivo" o "Pendiente de pago (…)").
   Si hay sugerencias, pregunta "¿Quisiste decir …?".
 - Si la imagen no tiene una placa legible, dilo y pide otra imagen.
 - Texto plano, sin emojis ni markdown."""
@@ -83,6 +86,8 @@ def _paso_dict(paso):
         "ejes": paso.ejes_texto,
         "tarifa_bs": f"{paso.tarifa:.2f}" if paso.tarifa is not None else None,
         "monto_cobrado_bs": f"{paso.monto_cobrado:.2f}",
+        "cobrado": paso.cobrado,
+        "forma_pago": paso.get_forma_pago_display() or None,  # Saldo | Efectivo | None (pendiente)
         "resultado": paso.resultado_texto,
         "imagen_url": paso.imagen_url or None,
     }
@@ -201,15 +206,20 @@ def resumen_dia(fecha="hoy"):
         return _fecha_no_valida(fecha, "resumen_dia")
     pasos = _pasos_del_dia(dia)
     por_estado = dict(pasos.order_by().values_list("estado").annotate(n=Count("id")))
-    recaudado = pasos.filter(estado="cobrado").aggregate(t=Sum("monto"))["t"] or 0
+    por_forma = dict(pasos.filter(estado="cobrado").order_by().values_list("forma_pago").annotate(t=Sum("monto")))
+    pendientes = dict(Alerta.objects.filter(paso__in=pasos.filter(estado="pendiente_pago")).order_by()
+                      .values_list("tipo").annotate(n=Count("paso_id", distinct=True)))
     alertas = Alerta.objects.filter(paso__in=pasos)
     return {
         "estado": "resumen_dia", "placa": None, "fecha": dia.strftime("%d/%m/%Y"),
         "total_pasos": sum(por_estado.values()),
         "cobrados": por_estado.get("cobrado", 0),
-        "recaudado_bs": f"{recaudado:.2f}",
-        "no_cobrados": {"saldo_insuficiente": por_estado.get("saldo_insuficiente", 0),
-                        "placa_no_registrada": por_estado.get("no_registrada", 0),
+        "recaudado_bs": f"{sum(por_forma.values(), 0):.2f}",  # cobrados con saldo + en efectivo
+        "recaudado_saldo_bs": f"{por_forma.get('saldo') or 0:.2f}",
+        "recaudado_efectivo_bs": f"{por_forma.get('efectivo') or 0:.2f}",
+        "pendientes_de_pago": por_estado.get("pendiente_pago", 0),
+        "no_cobrados": {"saldo_insuficiente": pendientes.get("saldo_insuficiente", 0),
+                        "placa_no_registrada": pendientes.get("placa_no_registrada", 0),
                         "error_lectura": por_estado.get("error_lectura", 0)},
         "alertas": alertas.count(),
         "alertas_pendientes": alertas.filter(atendida=False).count(),
@@ -257,9 +267,10 @@ def plantilla(datos):
     if estado == "resumen_dia":
         nc = datos["no_cobrados"]
         return (f"Resumen del {datos['fecha']}: {datos['total_pasos']} pasos, {datos['cobrados']} cobrados, "
-                f"recaudación {datos['recaudado_bs']} Bs. No cobrados: {nc['saldo_insuficiente']} por saldo "
-                f"insuficiente y {nc['placa_no_registrada']} por placa no registrada. Alertas: {datos['alertas']} "
-                f"({datos['alertas_pendientes']} pendientes).")
+                f"recaudación {datos['recaudado_bs']} Bs (saldo {datos['recaudado_saldo_bs']} Bs, efectivo "
+                f"{datos['recaudado_efectivo_bs']} Bs). Pendientes de pago: {datos['pendientes_de_pago']} "
+                f"({nc['saldo_insuficiente']} por saldo insuficiente y {nc['placa_no_registrada']} por placa no "
+                f"registrada). Alertas: {datos['alertas']} ({datos['alertas_pendientes']} pendientes).")
     leido = f"Leí la placa {placa} en la imagen. " if datos.get("lectura") else ""
     up = datos.get("ultimo_paso")
     detalle = ""

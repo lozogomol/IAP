@@ -14,6 +14,7 @@
   <div class="galaxia kpi"><span class="estrellas" aria-hidden="true"></span>
     <div class="kpi-cab"><span class="kpi-etiqueta">Recaudación de hoy</span>{% icono "billetera" %}</div>
     <span class="kpi-valor"><small>Bs</small><span id="k-recaudacion">{{ datos.kpis.recaudacion_hoy }}</span></span>
+    <span class="kpi-desglose">Saldo <b id="k-saldo">{{ datos.kpis.recaudacion_saldo }}</b> · Efectivo <b id="k-efectivo">{{ datos.kpis.recaudacion_efectivo }}</b> Bs</span>
   </div>
   <a class="galaxia kpi" href="/alertas"><span class="estrellas" aria-hidden="true"></span>
     <div class="kpi-cab"><span class="kpi-etiqueta">Alertas sin atender</span>{% icono "campana" %}</div>
@@ -116,6 +117,8 @@
     pintarTipos(k.por_tipo);
     $("k-pasos").textContent = k.pasos_hoy;
     $("k-recaudacion").textContent = k.recaudacion_hoy;
+    $("k-saldo").textContent = k.recaudacion_saldo;
+    $("k-efectivo").textContent = k.recaudacion_efectivo;
     $("k-alertas").textContent = k.alertas_pendientes;
     alertasPrevias = k.alertas_pendientes;
   }
@@ -149,9 +152,10 @@
     agregarPaso(e.detail.paso); pintarKpis(e.detail.kpis); pintarGrafica(e.detail.grafica);
   });
   document.addEventListener("iap:kpis", function (e) { pintarKpis(e.detail.kpis); });
+  // Un paso pendiente se cobró en efectivo: se actualiza su fila (por id) y la recaudación.
+  document.addEventListener("iap:pago", function (e) { agregarPaso(e.detail.paso); pintarKpis(e.detail.kpis); });
 
   // Respaldo sin Pusher: consulta periódica
-  var TIPO = { no_registrada: "placa_no_registrada", saldo_insuficiente: "saldo_insuficiente" };
   function consultar() {
     if (document.hidden) return;
     fetch("/panel/datos", { credentials: "same-origin" })
@@ -159,8 +163,8 @@
       .then(function (n) {
         var nuevos = n.pasos.filter(function (p) { return p.id > maxId; });
         if (n.kpis.alertas_pendientes > alertasPrevias) {
-          var conAlerta = nuevos.filter(function (p) { return TIPO[p.estado]; })[0];
-          if (conAlerta) IAP.mostrarAlerta({ paso: conAlerta, alerta: { tipo: TIPO[conAlerta.estado] } });
+          var conAlerta = nuevos.filter(function (p) { return p.motivo_pendiente; })[0];
+          if (conAlerta) IAP.mostrarAlerta({ paso: conAlerta, alerta: { tipo: conAlerta.motivo_pendiente } });
         }
         pintarLista(n.pasos); pintarKpis(n.kpis); pintarGrafica(n.grafica);
       })

@@ -68,7 +68,8 @@ class PanelTests(MediaTemporal):
         caseta = caseta_principal()
         Paso.objects.create(placa_leida="A", placa_normalizada="3876LBD", caseta=caseta, estado="cobrado",
                             monto=Decimal("10"))
-        Paso.objects.create(placa_leida="B", placa_normalizada="1111AAA", caseta=caseta, estado="no_registrada")
+        Paso.objects.create(placa_leida="B", placa_normalizada="1111AAA", caseta=caseta, estado="pendiente_pago",
+                            monto=Decimal("4"))  # pendiente: no suma a la recaudación
         viejo = Paso.objects.create(placa_leida="C", placa_normalizada="2451KTP", caseta=caseta, estado="cobrado",
                                     monto=Decimal("5"))
         Paso.objects.filter(pk=viejo.pk).update(created_at=timezone.now() - timedelta(days=2))
@@ -93,7 +94,8 @@ class PanelTests(MediaTemporal):
         self.assertLessEqual(len(d["pasos"]), 10)
         self.assertEqual(set(d["pasos"][0]),
                          {"id", "placa", "estado", "estado_texto", "categoria", "categoria_texto", "ejes", "pasajeros",
-                          "monto", "hora", "fecha", "imagen_url", "ejes_texto", "tarifa", "cobrado", "resultado_texto"})
+                          "monto", "hora", "fecha", "imagen_url", "ejes_texto", "tarifa", "cobrado", "resultado_texto",
+                          "forma_pago", "motivo_pendiente"})
 
     def test_sin_pusher_no_carga_pusher_js(self):
         entrar(self.client, self.oper)
@@ -262,7 +264,7 @@ class AlertasTests(MediaTemporal):
         entrar(self.client, self.oper)
         r = self.client.get("/alertas")
         self.assertContains(r, "No hay alertas pendientes")
-        _paso("6120PQR", estado="no_registrada", alerta="placa_no_registrada")
+        _paso("6120PQR", estado="pendiente_pago", alerta="placa_no_registrada")
         r = self.client.get("/alertas")
         self.assertContains(r, "posible evasión")
         self.assertContains(r, "6120PQR")
@@ -272,7 +274,8 @@ class AlertasTests(MediaTemporal):
             self.client.post(f"/alertas/{pendiente.id}/atender")
         self.assertTrue(Alerta.objects.get(pk=pendiente.pk).atendida)
         notificar.assert_called_once()
-        self.assertEqual(notificar.call_args.args[0], "kpis")
+        self.assertEqual(notificar.call_args.args[0], "pago")  # panel y alertas se actualizan en vivo
+        self.assertEqual(notificar.call_args.args[1]["alerta"]["nota"], "Cobrado por el operador")
         r = self.client.get("/alertas?filtro=atendidas")
         self.assertContains(r, pendiente.paso.placa_normalizada)
         self.assertNotContains(r, "Marcar atendida")
@@ -290,10 +293,10 @@ class ConsultaUltimoPasoTests(TestCase):
         self.assertEqual((d["ultimo_paso"]["fecha"], d["ultimo_paso"]["hora"], d["ultimo_paso"]["imagen_url"]),
                          (local.strftime("%d/%m/%Y"), local.strftime("%H:%M:%S"), "/capturas/x.jpg"))
         self.assertEqual(d["vehiculo"]["propietario"], "")  # la clave JSON se mantiene
-        _paso("6120PQR", estado="no_registrada")
+        _paso("6120PQR", estado="pendiente_pago")
         # placa no registrada que sí pasó (posible evasión)
         d = self.client.get("/api/v1/vehiculos/consulta", {"placa": "6120PQR"}).json()
-        self.assertEqual((d["estado"], d["ultimo_paso"]["estado"]), ("no_registrada", "no_registrada"))
+        self.assertEqual((d["estado"], d["ultimo_paso"]["estado"]), ("no_registrada", "pendiente_pago"))
 
 
 class EstadoPaginaTests(TestCase):

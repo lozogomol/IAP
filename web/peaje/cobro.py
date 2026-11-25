@@ -115,10 +115,12 @@ def registrar_paso(caseta_id, placa, usuario=None, confianza=None, texto_leido=N
     Tarifa = categoría detectada (M2) + ejes detectados (M3, mínimo 2; sin dato = 2 estimados); ver tarifa_de.
     Si no se detectó categoría, la del vehículo registrado. `antiduplicado`: no registra la misma placa dos veces en
     30 s (el punto de cobro lo desactiva: allí manda la regla de flujo.py). `fuente_categoria`: de dónde salió la
-    categoría que se pasa (inferencia | registro | respaldo). El monto del paso es SIEMPRE la tarifa calculada,
-    se haya cobrado o no; el estado dice si se cobró: "cobrado" (descuenta saldo), "saldo_insuficiente" o
-    "no_registrada" (con su alerta). Solo si no hay ninguna categoría (ni detectada ni registrada) no hay tarifa
-    y el monto queda en 0. Los ejes y pasajeros que no se detectaron quedan en null: nunca se inventan.
+    categoría que se pasa (inferencia | registro | respaldo). El monto del paso es SIEMPRE la tarifa calculada.
+    Caseta real, si pasó pagó: registrada con saldo suficiente → "cobrado" con forma_pago "saldo" (descuenta el
+    saldo); no registrada (o inactiva) o con saldo insuficiente → "pendiente_pago" con su alerta en tiempo real
+    (placa_no_registrada = posible evasión / saldo_insuficiente); no se toca el saldo: paga en efectivo y el paso se
+    cierra con cobrar_en_efectivo. Solo si no hay ninguna categoría no hay tarifa y el monto queda en 0. Los ejes y
+    pasajeros que no se detectaron quedan en null: nunca se inventan.
     """
     with transaction.atomic():
         caseta = Caseta.objects.select_for_update().get(pk=caseta_id)  # serializa los pasos de la caseta
@@ -137,29 +139,60 @@ def registrar_paso(caseta_id, placa, usuario=None, confianza=None, texto_leido=N
                 categoria, ejes, fuente = "", None, "desconocida"
         monto_tarifa, ejes_tarifa = tarifa if tarifa else (None, None)
 
-        alerta, nota = None, ""
+        alerta, nota, forma_pago = None, "", ""
         if vehiculo is None or not vehiculo.activo:
-            estado, alerta = "no_registrada", "placa_no_registrada"
+            estado, alerta = "pendiente_pago", "placa_no_registrada"
             if vehiculo:
                 nota = "Vehículo registrado pero inactivo."
         elif monto_tarifa is None:
             estado, nota = "error_lectura", f"No hay tarifa para {categoria} con {ejes} ejes."
         elif vehiculo.saldo >= monto_tarifa:
-            estado = "cobrado"
+            estado, forma_pago = "cobrado", "saldo"
             vehiculo.saldo -= monto_tarifa
             vehiculo.save(update_fields=["saldo"])
         else:
-            estado, alerta = "saldo_insuficiente", "saldo_insuficiente"
+            estado, alerta = "pendiente_pago", "saldo_insuficiente"  # paga en efectivo: el saldo no se toca
 
         paso = Paso.objects.create(
             placa_leida=(texto_leido or placa)[:20], placa_normalizada=placa, confianza_ocr=confianza,
             categoria_detectada=categoria or "", ejes_detectados=ejes, monto=monto_tarifa or CERO, caseta=caseta,
-            usuario=usuario, estado=estado, pasajeros=pasajeros,
+            usuario=usuario, estado=estado, forma_pago=forma_pago, pasajeros=pasajeros,
         )
         if alerta:
             Alerta.objects.create(paso=paso, tipo=alerta)
     return paso, False, {"fuente_categoria": fuente, "tarifa": monto_tarifa, "ejes_tarifa": ejes_tarifa,
                          "nota": nota, "saldo": vehiculo.saldo if vehiculo else None}
+
+
+NOTA_SIGUIENTE = "Cobrado en efectivo al pasar el siguiente vehículo"
+NOTA_OPERADOR = "Cobrado por el operador"
+
+
+def cobrar_en_efectivo(paso, nota, ahora=None):
+    """Cierra un paso "pendiente_pago": pasa a "cobrado" con forma_pago "efectivo" y sus alertas quedan atendidas
+    con `nota`. El saldo del vehículo no se toca. Devuelve True si el paso estaba pendiente (y cambió)."""
+    ahora = ahora or timezone.now()
+    with transaction.atomic():
+        cambio = Paso.objects.filter(pk=paso.pk, estado="pendiente_pago").update(estado="cobrado",
+                                                                                 forma_pago="efectivo")
+        if cambio:
+            Alerta.objects.filter(paso_id=paso.pk, atendida=False).update(atendida=True, nota=nota, atendida_at=ahora)
+    if cambio:
+        paso.refresh_from_db()
+    return bool(cambio)
+
+
+def atender_alerta(alerta, ahora=None):
+    """El operador marca la alerta como atendida: su paso pendiente se cobra en efectivo ("Cobrado por el operador").
+    Devuelve True si la alerta estaba pendiente."""
+    ahora = ahora or timezone.now()
+    with transaction.atomic():
+        if not Alerta.objects.filter(pk=alerta.pk, atendida=False).update(atendida=True, nota=NOTA_OPERADOR,
+                                                                         atendida_at=ahora):
+            return False
+        cobrar_en_efectivo(alerta.paso, NOTA_OPERADOR, ahora)
+    alerta.refresh_from_db()
+    return True
 
 
 def paso_a_dict(paso, info=None):
@@ -171,6 +204,10 @@ def paso_a_dict(paso, info=None):
         "estado": paso.estado,
         "estado_texto": paso.get_estado_display(),
         "cobrado": paso.cobrado,
+        "pendiente": paso.pendiente,
+        "forma_pago": paso.forma_pago,
+        "forma_pago_texto": paso.get_forma_pago_display() or None,
+        "motivo_pendiente": paso.motivo_pendiente if paso.pendiente else "",
         "resultado_texto": paso.resultado_texto,
         "categoria": paso.categoria_detectada or "desconocida",
         "categoria_texto": paso.get_categoria_detectada_display() or "Desconocida",
@@ -235,6 +272,7 @@ def consultar_placa(texto):
             "estado_texto": ultimo.get_estado_display(), "monto": str(ultimo.monto),
             "tarifa": f"{ultimo.tarifa:.2f}" if ultimo.tarifa is not None else None,
             "cobrado": ultimo.cobrado, "resultado_texto": ultimo.resultado_texto,
+            "forma_pago": ultimo.forma_pago, "forma_pago_texto": ultimo.get_forma_pago_display() or None,
             "ejes_texto": ultimo.ejes_texto,
             "categoria": ultimo.categoria_detectada or None,
             "categoria_texto": ultimo.get_categoria_detectada_display() or None,

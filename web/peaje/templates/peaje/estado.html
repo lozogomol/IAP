@@ -1,11 +1,10 @@
 {% extends "peaje/base.html" %}
 {% load iconos %}
-{% block titulo %}Estado{% endblock %}
+{% block titulo %}Estado del sistema{% endblock %}
+{% block h1 %}Estado del sistema{% endblock %}
+{% block subtitulo %}Web, base de datos y modelos de inferencia{% endblock %}
+{% block acciones %}<a class="boton" href="/estado">{% icono "refrescar" %}Comprobar</a>{% endblock %}
 {% block contenido %}
-<header class="pagina-cab">
-  <h1>Estado</h1>
-  <a class="boton" href="/estado">{% icono "refrescar" %}Comprobar</a>
-</header>
 
 <div class="grilla grilla-3">
   <section class="tarjeta servicio" aria-labelledby="s-web">

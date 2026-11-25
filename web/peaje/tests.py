@@ -222,7 +222,7 @@ class EstadoTests(TestCase):
     def test_publico_html(self):
         r = self.client.get("/estado")
         self.assertEqual(r.status_code, 200)
-        self.assertContains(r, "<h1>Estado</h1>", html=False)
+        self.assertContains(r, "<h1>Estado del sistema</h1>", html=False)
 
     def test_json(self):
         r = self.client.get("/estado?format=json")

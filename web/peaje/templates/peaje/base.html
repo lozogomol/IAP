@@ -3,11 +3,11 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#1a0508">
+  <meta name="theme-color" content="#0b1230">
   <title>{% block titulo %}Peaje IAP{% endblock %} · Peaje IAP</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{% static 'css/iap.css' %}">
   {% block head %}{% endblock %}
 </head>
@@ -36,11 +36,12 @@
         {% endwith %}
         <div class="usuario">
           {% if usuario_sesion %}
+            <span class="avatar" title="{{ usuario_sesion.nombre }}" aria-hidden="true">{{ usuario_sesion.nombre|iniciales }}</span>
             <span class="usuario-nombre" title="{{ usuario_sesion.nombre }}">{{ usuario_sesion.nombre }}</span>
             <span class="rol">{{ usuario_sesion.rol }}</span>
-            <a class="boton claro chico" href="/logout">{% icono "salir" %}Salir</a>
+            <a class="boton chico" href="/logout">{% icono "salir" %}Salir</a>
           {% else %}
-            <a class="boton claro chico" href="/login">Iniciar sesión</a>
+            <a class="boton chico" href="/login">Iniciar sesión</a>
           {% endif %}
         </div>
       </div>
@@ -75,6 +76,15 @@
   {% endif %}
 
   <main class="contenedor">
+    {% block encabezado %}
+    <header class="pagina-cab">
+      <div class="titulos">
+        <h1>{% block h1 %}{% endblock %}</h1>
+        {% block subtitulo_bloque %}<p class="subtitulo">{% block subtitulo %}{% endblock %}</p>{% endblock %}
+      </div>
+      {% block acciones %}{% endblock %}
+    </header>
+    {% endblock %}
     {% block contenido %}{% endblock %}
   </main>
 

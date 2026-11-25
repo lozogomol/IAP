@@ -3,10 +3,14 @@
 {% block titulo %}Acceso denegado{% endblock %}
 {% block clase_body %}pagina-acceso{% endblock %}
 {% block cabecera %}{% endblock %}
+{% block encabezado %}{% endblock %}
 {% block contenido %}
 <section class="acceso" aria-labelledby="titulo-denegado">
-  {% include "peaje/_icono.html" %}
-  <h1 id="titulo-denegado">Acceso denegado</h1>
+  <div class="acceso-cab">
+    {% include "peaje/_icono.html" %}
+    <h1 id="titulo-denegado">Acceso denegado</h1>
+  </div>
+  <div class="acceso-cuerpo">
   <p class="tenue pequeno">Acceso denegado: tu cuenta de Google no está autorizada en IAP.</p>
   {% if email %}<span class="cuenta">{{ email }}</span>{% endif %}
   <div class="pila">
@@ -23,6 +27,7 @@
       {% endif %}
     {% endif %}
     <a class="boton bloque" href="/login">Probar con otra cuenta</a>
+  </div>
   </div>
 </section>
 {% endblock %}

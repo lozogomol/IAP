@@ -53,7 +53,7 @@ class CasetaPrincipalTests(TestCase):
     def test_pagina_usa_la_caseta_principal(self):
         entrar(self.client, Usuario.objects.get(email_google="lozogomol@gmail.com"))
         r = self.client.get("/caseta")
-        self.assertContains(r, "<h1>Caseta</h1>", html=False)
+        self.assertContains(r, "<h1>Punto de cobro</h1>", html=False)
         self.assertContains(r, f'<script id="caseta-id" type="application/json">{caseta_principal().id}</script>')
         for texto in ("Categoría", "Ejes", "Pasajeros", "Monto"):
             self.assertContains(r, texto)
@@ -328,7 +328,7 @@ class EstadoPaginaTests(TestCase):
 
 
 class DisenoTests(TestCase):
-    """Guardas del sistema de diseño: sin emojis, sin esquinas redondeadas y sin la paleta azul anterior."""
+    """Guardas del sistema de diseño "azul noche": sin emojis, sin la paleta roja anterior y radios con variables."""
 
     def _archivos(self):
         from pathlib import Path
@@ -338,20 +338,59 @@ class DisenoTests(TestCase):
         yield raiz / "static" / "css" / "iap.css"
         yield raiz / "peaje" / "templatetags" / "iconos.py"
 
-    def test_sin_emojis_bordes_redondeados_ni_azul(self):
+    def _css(self):
+        from pathlib import Path
+        from django.conf import settings
+        return (Path(settings.BASE_DIR) / "static" / "css" / "iap.css").read_text(encoding="utf-8")
+
+    def test_sin_emojis_ni_rojo_anterior(self):
         import re
-        emoji = re.compile("[\\U0001F000-\\U0001FAFF\\u2600-\\u27BF\\u2B00-\\u2BFF\\uFE0F]")
-        radio = re.compile(r"border-radius\s*:\s*([^;}]*)", re.I)
-        cero = re.compile(r"^0(px)?\s*(!important)?\s*$")
-        azul = re.compile(r"#(1d4ed8|1e3a8a|0b1d51|2563eb|3b82f6|60a5fa|93c5fd|bfdbfe|dbeafe|eff6ff|1e40af|c7d7fe|dbe5ff)"
-                          r"|rgba\(\s*(59|96|147|191)\s*,\s*(130|165|197|219)", re.I)
+        emoji = re.compile("[\U0001F000-\U0001FAFF\u2600-\u27BF\u2B00-\u2BFF\uFE0F]")
+        rojo = re.compile(r"#(991b1b|7f1d1d|3b0a12|1a0508|0a0204|fca5a5|fecaca|fee2e2)\b"
+                          r"|rgba\(\s*(153\s*,\s*27|127\s*,\s*29|10\s*,\s*2\s*,\s*4)\b", re.I)
         for archivo in self._archivos():
             texto = archivo.read_text(encoding="utf-8")
-            for patron, que in ((emoji, "emoji"), (azul, "color azul")):
+            for patron, que in ((emoji, "emoji"), (rojo, "rojo anterior")):
                 m = patron.search(texto)
                 self.assertIsNone(m, f"{que} en {archivo.name}: {m and m.group(0)!r}")
-            for valor in radio.findall(texto):
-                self.assertRegex(valor.strip(), cero, f"border-radius no recto en {archivo.name}: {valor!r}")
+
+    def test_paleta_azul_noche_y_tokens(self):
+        css = self._css()
+        for color in ("#070b1a", "#0b1230", "#111a3f", "#1b2a5e", "#3b6cf5", "#2f56c9", "#8fb0ff", "#2a3f86",
+                      "#ffffff", "#0f172a", "#64748b", "#e2e8f0", "#16a34a", "#d97706", "#dc2626"):
+            self.assertIn(color, css)
+        self.assertIn("--radio: 8px", css)
+        self.assertIn("--ancho-max: 1280px", css)
+        self.assertIn("prefers-reduced-motion", css)
+        self.assertIn('"Inter"', css)
+
+    def test_radios_con_variables(self):
+        import re
+        valido = re.compile(r"^(0|50%|var\(--radio[a-z-]*\))$")
+        for archivo in self._archivos():
+            for valor in re.findall(r"border-radius\s*:\s*([^;}]*)", archivo.read_text(encoding="utf-8"), re.I):
+                for parte in valor.replace("!important", "").split():
+                    self.assertRegex(parte, valido, f"border-radius sin variable en {archivo.name}: {valor!r}")
+
+    def test_galaxia_solo_en_barra_login_y_kpi(self):
+        from pathlib import Path
+        from django.conf import settings
+        permitidos = {"base.html", "login.html", "panel.html"}
+        for archivo in (Path(settings.BASE_DIR) / "peaje" / "templates").rglob("*.html"):
+            if "galaxia" in archivo.read_text(encoding="utf-8"):
+                self.assertIn(archivo.name, permitidos)
+
+    def test_titulos_de_secciones(self):
+        entrar(self.client, Usuario.objects.get(email_google="lozogomol@gmail.com"))
+        for ruta, titulo in (("/", "Panel en tiempo real"), ("/caseta", "Punto de cobro"),
+                             ("/consulta", "Consulta de placas"), ("/vehiculos", "Vehículos registrados"),
+                             ("/pasos", "Historial de pasos"), ("/alertas", "Alertas"), ("/chat", "Asistente IA"),
+                             ("/usuarios", "Usuarios y accesos")):
+            r = self.client.get(ruta)
+            self.assertContains(r, f"<h1>{titulo}</h1>", html=False)
+            self.assertLessEqual(r.content.decode().count('class="subtitulo"'), 1, ruta)
+        r = self.client.get("/")
+        self.assertContains(r, 'class="avatar"')
 
     def test_confirmacion_y_tablas_apilables(self):
         entrar(self.client, Usuario.objects.get(email_google="lozogomol@gmail.com"))

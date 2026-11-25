@@ -1,10 +1,11 @@
 {% extends "peaje/base.html" %}
 {% load iconos %}
-{% block titulo %}Caseta{% endblock %}
+{% block titulo %}Punto de cobro{% endblock %}
+{% block encabezado %}{% endblock %}
 {% block clase_body %}pagina-caseta{% endblock %}
 {% block contenido %}
 <div class="caseta">
-  <header class="pagina-cab"><h1>Caseta</h1></header>
+  <header class="pagina-cab"><div class="titulos"><h1>Punto de cobro</h1><p class="subtitulo">Lectura automática de placas y cobro</p></div></header>
   <div id="aviso" class="aviso" role="alert" hidden>{% icono "alerta" %}<span id="aviso-texto"></span></div>
 
   <div id="video-caja" class="video-caja">
@@ -31,10 +32,10 @@
     </dl>
     <div class="solo-escritorio">
       <div id="captura" class="captura-grande">{% icono "imagen" %}</div>
-      <ul class="lista-datos" style="margin-top:12px">
+      <ul class="lista-datos mt-2">
         <li><span>Hora</span><b id="hora" class="num">–</b></li>
       </ul>
-      <p id="lectura" class="tenue pequeno" style="margin-top:12px"></p>
+      <p id="lectura" class="tenue pequeno mt-2"></p>
     </div>
   </section>
 
@@ -49,7 +50,7 @@
       <li><span>Ejes</span><b id="vivo-ejes">–</b></li>
       <li><span>Pasajeros</span><b id="vivo-pasajeros">–</b></li>
     </ul>
-    <p class="diagnostico" id="diagnostico" style="margin-top:12px">Latencia <span id="latencia">–</span> · Frames <span id="contador">0</span> · Placa <span id="conf-placa">–</span> · Tipo <span id="conf-tipo">–</span> · <span id="lat-modelos">–</span><span id="ultimo-error-caja" hidden> · Error: <span id="ultimo-error"></span></span></p>
+    <p class="diagnostico mt-2" id="diagnostico">Latencia <span id="latencia">–</span> · Frames <span id="contador">0</span> · Placa <span id="conf-placa">–</span> · Tipo <span id="conf-tipo">–</span> · <span id="lat-modelos">–</span><span id="ultimo-error-caja" hidden> · Error: <span id="ultimo-error"></span></span></p>
   </section>
 </div>
 <canvas id="lienzo" hidden></canvas>
@@ -160,7 +161,7 @@
     }
     if (lec.caja_vehiculo) {
       var etiqueta = (lec.categoria || "") + (lec.ejes != null ? " · " + lec.ejes + " ejes" : "");
-      caja(lec.caja_vehiculo, "#dc2626", etiqueta, 3);
+      caja(lec.caja_vehiculo, "#3b6cf5", etiqueta, 3);
     }
     (lec.cajas_llantas || []).forEach(function (c) { caja(c, "#ea580c", "", 2); });
     (lec.cajas_placas || []).forEach(function (c) {

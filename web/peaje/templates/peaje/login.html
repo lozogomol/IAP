@@ -2,11 +2,16 @@
 {% block titulo %}Iniciar sesión{% endblock %}
 {% block clase_body %}pagina-acceso{% endblock %}
 {% block cabecera %}{% endblock %}
+{% block encabezado %}{% endblock %}
 {% block head %}<script src="https://accounts.google.com/gsi/client" async defer></script>{% endblock %}
 {% block contenido %}
 <section class="acceso" aria-labelledby="titulo-login">
-  {% include "peaje/_icono.html" %}
-  <h1 id="titulo-login">Peaje IAP</h1>
+  <div class="acceso-cab galaxia">
+    {% include "peaje/_icono.html" %}
+    <h1 id="titulo-login">Peaje IAP</h1>
+    <p>Peaje inteligente con lectura de placas</p>
+  </div>
+  <div class="acceso-cuerpo">
   {% if google_client_id %}
     <div id="g_id_onload"
          data-client_id="{{ google_client_id }}"
@@ -20,6 +25,7 @@
     <p id="google-btn" class="tenue pequeno">Falta configurar GOOGLE_CLIENT_ID.</p>
   {% endif %}
   <p id="mensaje" class="mensaje-login" role="alert"></p>
+  </div>
 </section>
 {% csrf_token %}
 {% endblock %}

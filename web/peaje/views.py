@@ -114,10 +114,6 @@ def logout(request):
 
 # --- Páginas protegidas ---------------------------------------------------------------------------
 
-def _placeholder(request, titulo, texto):
-    return render(request, "peaje/placeholder.html", {"titulo": titulo, "texto": texto})
-
-
 @login_requerido
 def panel(request):
     return render(request, "peaje/panel.html", {"datos": panel_mod.datos_panel()})
@@ -299,7 +295,7 @@ def usuario_accion(request, pk):
 
 @login_requerido
 def chat(request):
-    return _placeholder(request, "Chat", "Agente conversacional no disponible")
+    return render(request, "peaje/chat.html", {"texto": "Agente conversacional no disponible"})
 
 
 # --- Estado (público) ---------------------------------------------------------------------------

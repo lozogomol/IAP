@@ -1,0 +1,13 @@
+{% extends "peaje/base.html" %}
+{% load iconos %}
+{% block titulo %}Asistente IA{% endblock %}
+{% block h1 %}Asistente IA{% endblock %}
+{% block subtitulo %}Preguntas en lenguaje natural sobre el peaje{% endblock %}
+{% block contenido %}
+<section class="tarjeta chat" aria-label="Conversación" aria-live="polite">
+  <div class="mensaje">
+    <span class="avatar" aria-hidden="true">{% icono "bot" %}</span>
+    <p class="burbuja">{{ texto }}</p>
+  </div>
+</section>
+{% endblock %}

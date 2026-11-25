@@ -1,13 +1,12 @@
 {% extends "peaje/base.html" %}
 {% load iconos %}
-{% block titulo %}Panel{% endblock %}
+{% block titulo %}Panel en tiempo real{% endblock %}
+{% block h1 %}Panel en tiempo real{% endblock %}
+{% block subtitulo %}Pasos, recaudación y alertas de hoy{% endblock %}
+{% block acciones %}<span id="modo" class="estado-vivo consulta">Automático</span>{% endblock %}
 {% block contenido %}
-<header class="pagina-cab">
-  <h1>Panel</h1>
-  <span id="modo" class="estado-vivo consulta">Automático</span>
-</header>
 
-<section class="grilla grilla-3" aria-label="Indicadores de hoy" style="margin-bottom:var(--e-4)">
+<section class="grilla grilla-3 separado" aria-label="Indicadores de hoy">
   <div class="tarjeta galaxia kpi">
     <div class="kpi-cab"><span class="kpi-etiqueta">Pasos de hoy</span>{% icono "auto" %}</div>
     <span class="kpi-valor" id="k-pasos">{{ datos.kpis.pasos_hoy }}</span>
@@ -113,15 +112,15 @@
     }
     grafica = new Chart($("grafica"), {
       type: "bar",
-      data: { labels: g.etiquetas, datasets: [{ label: "Pasos", data: g.valores, backgroundColor: "#991b1b",
-              hoverBackgroundColor: "#7f1d1d", borderRadius: 0, borderSkipped: false, maxBarThickness: 48 }] },
+      data: { labels: g.etiquetas, datasets: [{ label: "Pasos", data: g.valores, backgroundColor: "#3b6cf5",
+              hoverBackgroundColor: "#2f56c9", borderRadius: 6, borderSkipped: false, maxBarThickness: 48 }] },
       options: {
         responsive: true, maintainAspectRatio: false, animation: reducido ? false : { duration: 400 },
-        plugins: { legend: { display: false }, tooltip: { cornerRadius: 0, backgroundColor: "#111827" } },
+        plugins: { legend: { display: false }, tooltip: { cornerRadius: 8, backgroundColor: "#0b1230", padding: 10, titleFont: { family: "Inter" }, bodyFont: { family: "Inter" } } },
         scales: {
-          x: { grid: { display: false }, ticks: { color: "#4b5563", font: { family: "Inter" } } },
-          y: { beginAtZero: true, ticks: { precision: 0, color: "#4b5563", font: { family: "Inter" } },
-               grid: { color: "#e5e7eb" }, border: { display: false } }
+          x: { grid: { display: false }, ticks: { color: "#64748b", font: { family: "Inter" } } },
+          y: { beginAtZero: true, ticks: { precision: 0, color: "#64748b", font: { family: "Inter" } },
+               grid: { color: "#e2e8f0" }, border: { display: false } }
         }
       }
     });

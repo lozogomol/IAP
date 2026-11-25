@@ -1,10 +1,9 @@
 {% extends "peaje/base.html" %}
 {% load iconos %}
-{% block titulo %}Consulta{% endblock %}
+{% block titulo %}Consulta de placas{% endblock %}
+{% block h1 %}Consulta de placas{% endblock %}
+{% block subtitulo %}Escribe una placa o usa una foto{% endblock %}
 {% block contenido %}
-<header class="pagina-cab">
-  <h1>Consulta</h1>
-</header>
 
 <div class="grilla grilla-consulta">
   <section class="tarjeta" aria-label="Buscar placa">
@@ -20,7 +19,7 @@
       <input id="foto" class="visualmente-oculto" type="file" accept="image/*" capture="environment">
     </div>
     <img id="vista" class="vista-foto" alt="Foto enviada" hidden>
-    <p id="mensaje" class="tenue pequeno" role="status" style="margin-top:12px"></p>
+    <p id="mensaje" class="tenue pequeno mt-2" role="status"></p>
   </section>
 
   <section id="resultado" class="tarjeta consulta-resultado" aria-live="polite" aria-labelledby="r-placa">

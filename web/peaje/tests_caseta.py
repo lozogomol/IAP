@@ -411,7 +411,7 @@ class ConsultaTests(TestCase):
         cobro.registrar_paso(caseta.id, "3876LBD", categoria="camion", ejes=3, pasajeros=2)
         cobro.registrar_paso(caseta.id, "2451KTP", categoria="moto")
         r = self.client.get("/pasos")
-        self.assertContains(r, "<h1>Pasos</h1>", html=False)
+        self.assertContains(r, "<h1>Historial de pasos</h1>", html=False)
         self.assertContains(r, '<td data-label="Ejes" class="num">3</td>', html=False)
         self.assertContains(r, '<td data-label="Pasajeros" class="num">2</td>', html=False)
         self.assertContains(r, '<td data-label="Pasajeros" class="num">–</td>', html=False)  # sin dato
@@ -441,9 +441,9 @@ class ConsultaTests(TestCase):
         self.assertEqual(r.json()["consulta"]["estado"], "habilitada")
 
     def test_paginas(self):
-        self.assertContains(self.client.get("/consulta"), "<h1>Consulta</h1>", html=False)
+        self.assertContains(self.client.get("/consulta"), "<h1>Consulta de placas</h1>", html=False)
         r = self.client.get("/caseta")
-        self.assertContains(r, "<h1>Caseta</h1>", html=False)
+        self.assertContains(r, "<h1>Punto de cobro</h1>", html=False)
         self.assertContains(r, "Iniciar")
         self.assertContains(r, 'facingMode: { ideal: "environment" }')
         self.assertNotContains(r, "<select")  # sin selector de caseta

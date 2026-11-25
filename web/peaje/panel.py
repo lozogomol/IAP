@@ -36,7 +36,11 @@ def resumen_paso(paso):
         "categoria_texto": paso.get_categoria_detectada_display(),
         "ejes": paso.ejes_detectados,
         "pasajeros": paso.pasajeros,
+        "ejes_texto": paso.ejes_texto,
         "monto": f"{paso.monto:.2f}",
+        "tarifa": f"{paso.tarifa:.2f}" if paso.tarifa is not None else None,
+        "cobrado": paso.cobrado,
+        "resultado_texto": paso.resultado_texto,
         "hora": local.strftime("%H:%M:%S"),
         "fecha": local.strftime("%d/%m/%Y"),
         "imagen_url": paso.imagen_url or "",
@@ -45,6 +49,7 @@ def resumen_paso(paso):
 
 def kpis():
     hoy = Paso.objects.filter(created_at__gte=_inicio_dia(timezone.localdate()))
+    # Solo lo cobrado: en los demás pasos el monto es la tarifa que no se pudo cobrar.
     recaudado = hoy.filter(estado="cobrado").aggregate(t=Sum("monto"))["t"] or Decimal("0")
     return {
         "pasos_hoy": hoy.count(),

@@ -72,8 +72,9 @@
       fila("Hora", u.hora);
       fila("Punto de cobro", u.caseta || "–");
       fila("Tipo", u.categoria_texto || "Sin tipo");
-      fila("Ejes", u.ejes != null ? String(u.ejes) : "–");
-      fila("Monto", "Bs " + u.monto + " · " + u.estado_texto);
+      fila("Ejes", u.ejes_texto || "–");
+      fila("Tarifa", u.tarifa != null ? u.tarifa + " Bs" : "–");
+      fila("Resultado", u.resultado_texto || u.estado_texto);
     } else {
       fila("Pasos", c.vehiculo ? "No tiene pasos registrados" : "La placa no está registrada y no tiene pasos");
     }

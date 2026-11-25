@@ -139,13 +139,9 @@ MENSAJE_ETAPA = {
 
 
 def _mensaje_cobro(paso):
-    if paso.estado == "cobrado":
-        return f"Cobrado {paso.monto:.2f} Bs"
-    if paso.estado == "saldo_insuficiente":
-        return "Alerta: saldo insuficiente"
-    if paso.estado == "no_registrada":
-        return "Alerta: placa no registrada (posible evasión)"
-    return "Registrado: " + paso.get_estado_display().lower()
+    """"Tarifa: X Bs · <resultado>" (la tarifa se muestra siempre, se haya cobrado o no)."""
+    tarifa = f"Tarifa: {paso.tarifa:.2f} Bs" if paso.tarifa is not None else "Tarifa: –"
+    return f"{tarifa} · {paso.resultado_texto}"
 
 
 def _duplicado(responder, paso, lectura, estado_flujo=None):

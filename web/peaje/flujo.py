@@ -119,7 +119,8 @@ def flujo_de_paso(paso):
     return {
         "etapa": "registrado", "placa": paso.placa_normalizada, "placa_bloqueada": True,
         "tipo": tipo or None, "tipo_texto": paso.get_categoria_detectada_display() or None, "tipo_listo": True,
-        "ejes": paso.ejes_detectados, "ejes_listo": True, "pasajeros": paso.pasajeros, "pasajeros_listo": True,
+        "ejes": paso.ejes_detectados, "ejes_texto": paso.ejes_texto, "ejes_listo": True,
+        "pasajeros": paso.pasajeros, "pasajeros_listo": True,
         "segundos": None,
     }
 

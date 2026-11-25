@@ -2,7 +2,7 @@
 {% load iconos %}
 {% block titulo %}Historial de pasos{% endblock %}
 {% block h1 %}Historial de pasos{% endblock %}
-{% block subtitulo %}Cada paso con su evidencia, monto y estado{% endblock %}
+{% block subtitulo %}Cada paso con su evidencia, tarifa y resultado del cobro{% endblock %}
 {% block acciones %}
   <form class="filtros" method="get" action="/pasos" role="search">
     <label for="q" class="visualmente-oculto">Placa</label>
@@ -24,7 +24,7 @@
         <th scope="col">Categoría</th>
         <th scope="col">Ejes</th>
         <th scope="col">Pasajeros</th>
-        <th scope="col" class="derecha">Monto</th>
+        <th scope="col" class="derecha">Tarifa</th>
         <th scope="col">Estado</th>
         <th scope="col">Hora</th>
       </tr>
@@ -41,9 +41,9 @@
         </td>
         <td data-label="Placa" class="placa">{{ p.placa_normalizada }}</td>
         <td data-label="Categoría">{{ p.get_categoria_detectada_display|default:"–" }}</td>
-        <td data-label="Ejes" class="num">{{ p.ejes_detectados|default_if_none:"–" }}</td>
+        <td data-label="Ejes" class="num">{{ p.ejes_texto }}</td>
         <td data-label="Pasajeros" class="num">{{ p.pasajeros|default_if_none:"–" }}</td>
-        <td data-label="Monto" class="derecha num">Bs {{ p.monto }}</td>
+        <td data-label="Tarifa" class="derecha num">Tarifa: {% if p.tarifa is not None %}{{ p.tarifa }} Bs{% else %}–{% endif %}<span class="resultado-linea {% if p.cobrado %}ok{% else %}no{% endif %}">{{ p.resultado_texto }}</span></td>
         <td data-label="Estado"><span class="etiqueta e-{{ p.estado }}">{{ p.get_estado_display }}</span></td>
         <td data-label="Hora" class="num">{{ p.created_at|date:"d/m/Y H:i:s" }}</td>
       </tr>

@@ -104,6 +104,41 @@ class Paso(models.Model):
     def __str__(self):
         return f"{self.placa_normalizada} · {self.get_estado_display()} · {self.created_at:%Y-%m-%d %H:%M}"
 
+    # `monto` es SIEMPRE la tarifa calculada (tipo + ejes), se haya cobrado o no; `estado` dice si se cobró.
+    @property
+    def cobrado(self):
+        return self.estado == "cobrado"
+
+    @property
+    def tarifa(self):
+        """Tarifa del paso en Bs, o None si no se pudo calcular (sin tipo de vehículo)."""
+        return self.monto if self.monto or self.categoria_detectada else None
+
+    @property
+    def monto_cobrado(self):
+        return self.monto if self.cobrado else 0
+
+    @property
+    def resultado_texto(self):
+        return RESULTADO_COBRO.get(self.estado, self.get_estado_display())
+
+    @property
+    def ejes_tarifa(self):
+        return max(2, self.ejes_detectados or 2)
+
+    @property
+    def ejes_texto(self):
+        """Ejes con los que se calculó la tarifa: sin dato de M3 se cobran 2 y se muestra "2 (estimado)"."""
+        return "2 (estimado)" if self.ejes_detectados is None else str(self.ejes_tarifa)
+
+
+RESULTADO_COBRO = {
+    "cobrado": "Cobrado",
+    "saldo_insuficiente": "No cobrado: saldo insuficiente",
+    "no_registrada": "No cobrado: placa no registrada",
+    "error_lectura": "No cobrado: error de lectura",
+}
+
 
 class Alerta(models.Model):
     TIPOS = [

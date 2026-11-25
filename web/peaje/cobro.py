@@ -111,9 +111,11 @@ def registrar_paso(caseta_id, placa, usuario=None, confianza=None, texto_leido=N
                    pasajeros=None, ahora=None):
     """Registra el paso y cobra. Devuelve (paso, duplicado, info).
 
-    Tarifa = categoría detectada (M2) + ejes detectados (M3, mínimo 2); ver tarifa_de.
-    Si no se detectó categoría, la del vehículo registrado; si no está registrado ni se detectó, "desconocida" y
-    monto 0. Los ejes y pasajeros que no se detectaron quedan en null en el paso: nunca se inventan.
+    Tarifa = categoría detectada (M2) + ejes detectados (M3, mínimo 2; sin dato = 2 estimados); ver tarifa_de.
+    Si no se detectó categoría, la del vehículo registrado. El monto del paso es SIEMPRE la tarifa calculada,
+    se haya cobrado o no; el estado dice si se cobró: "cobrado" (descuenta saldo), "saldo_insuficiente" o
+    "no_registrada" (con su alerta). Solo si no hay ninguna categoría (ni detectada ni registrada) no hay tarifa
+    y el monto queda en 0. Los ejes y pasajeros que no se detectaron quedan en null: nunca se inventan.
     """
     with transaction.atomic():
         caseta = Caseta.objects.select_for_update().get(pk=caseta_id)  # serializa los pasos de la caseta
@@ -123,15 +125,16 @@ def registrar_paso(caseta_id, placa, usuario=None, confianza=None, texto_leido=N
 
         vehiculo = Vehiculo.objects.select_for_update().filter(placa=placa).first()
         fuente = "inferencia"
-        monto_tarifa = _tarifa(categoria, ejes)
-        if monto_tarifa is None:
+        tarifa = tarifa_de(categoria, ejes)
+        if tarifa is None:
             if vehiculo:
                 categoria, ejes, fuente = vehiculo.categoria, vehiculo.ejes, "registro"
-                monto_tarifa = _tarifa(categoria, ejes)
+                tarifa = tarifa_de(categoria, ejes)
             elif not categoria:
                 categoria, ejes, fuente = "", None, "desconocida"
+        monto_tarifa, ejes_tarifa = tarifa if tarifa else (None, None)
 
-        monto, alerta, nota = CERO, None, ""
+        alerta, nota = None, ""
         if vehiculo is None or not vehiculo.activo:
             estado, alerta = "no_registrada", "placa_no_registrada"
             if vehiculo:
@@ -139,7 +142,7 @@ def registrar_paso(caseta_id, placa, usuario=None, confianza=None, texto_leido=N
         elif monto_tarifa is None:
             estado, nota = "error_lectura", f"No hay tarifa para {categoria} con {ejes} ejes."
         elif vehiculo.saldo >= monto_tarifa:
-            estado, monto = "cobrado", monto_tarifa
+            estado = "cobrado"
             vehiculo.saldo -= monto_tarifa
             vehiculo.save(update_fields=["saldo"])
         else:
@@ -147,34 +150,34 @@ def registrar_paso(caseta_id, placa, usuario=None, confianza=None, texto_leido=N
 
         paso = Paso.objects.create(
             placa_leida=(texto_leido or placa)[:20], placa_normalizada=placa, confianza_ocr=confianza,
-            categoria_detectada=categoria or "", ejes_detectados=ejes, monto=monto, caseta=caseta,
+            categoria_detectada=categoria or "", ejes_detectados=ejes, monto=monto_tarifa or CERO, caseta=caseta,
             usuario=usuario, estado=estado, pasajeros=pasajeros,
         )
         if alerta:
             Alerta.objects.create(paso=paso, tipo=alerta)
-    t = tarifa_de(categoria, ejes)
-    return paso, False, {"fuente_categoria": fuente, "tarifa": monto_tarifa, "ejes_tarifa": t[1] if t else None,
-                         "nota": nota,
-                         "saldo": vehiculo.saldo if vehiculo else None}
+    return paso, False, {"fuente_categoria": fuente, "tarifa": monto_tarifa, "ejes_tarifa": ejes_tarifa,
+                         "nota": nota, "saldo": vehiculo.saldo if vehiculo else None}
 
 
 def paso_a_dict(paso, info=None):
     info = info or {}
-    tarifa = info.get("tarifa")
-    if tarifa is None:
-        tarifa = _tarifa(paso.categoria_detectada, paso.ejes_detectados)
+    tarifa = paso.tarifa
     return {
         "id": paso.id,
         "placa": paso.placa_normalizada,
         "estado": paso.estado,
         "estado_texto": paso.get_estado_display(),
+        "cobrado": paso.cobrado,
+        "resultado_texto": paso.resultado_texto,
         "categoria": paso.categoria_detectada or "desconocida",
         "categoria_texto": paso.get_categoria_detectada_display() or "Desconocida",
         "ejes": paso.ejes_detectados,
-        "ejes_tarifa": info.get("ejes_tarifa") or _ejes_tarifa(paso),
+        "ejes_tarifa": paso.ejes_tarifa,
+        "ejes_estimado": paso.ejes_detectados is None,
+        "ejes_texto": paso.ejes_texto,
         "pasajeros": paso.pasajeros,
-        "tarifa": str(tarifa) if tarifa is not None else None,
-        "monto_cobrado": str(paso.monto),
+        "tarifa": f"{tarifa:.2f}" if tarifa is not None else None,
+        "monto_cobrado": f"{paso.monto_cobrado:.2f}",
         "saldo": str(info["saldo"]) if info.get("saldo") is not None else None,
         "fuente_categoria": info.get("fuente_categoria"),
         "nota": info.get("nota", ""),
@@ -183,11 +186,6 @@ def paso_a_dict(paso, info=None):
         "imagen_url": paso.imagen_url or None,
         "created_at": paso.created_at.isoformat(),
     }
-
-
-def _ejes_tarifa(paso):
-    t = tarifa_de(paso.categoria_detectada, paso.ejes_detectados)
-    return t[1] if t else None
 
 
 # --- Consulta ------------------------------------------------------------------------------------
@@ -232,6 +230,9 @@ def consultar_placa(texto):
             "fecha": local.strftime("%d/%m/%Y"), "hora": local.strftime("%H:%M:%S"),
             "created_at": ultimo.created_at.isoformat(), "estado": ultimo.estado,
             "estado_texto": ultimo.get_estado_display(), "monto": str(ultimo.monto),
+            "tarifa": f"{ultimo.tarifa:.2f}" if ultimo.tarifa is not None else None,
+            "cobrado": ultimo.cobrado, "resultado_texto": ultimo.resultado_texto,
+            "ejes_texto": ultimo.ejes_texto,
             "categoria": ultimo.categoria_detectada or None,
             "categoria_texto": ultimo.get_categoria_detectada_display() or None,
             "ejes": ultimo.ejes_detectados, "pasajeros": ultimo.pasajeros,

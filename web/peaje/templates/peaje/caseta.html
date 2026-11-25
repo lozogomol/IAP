@@ -17,6 +17,8 @@
     </div>
     <div class="video-chip en-vivo">EN VIVO · <span id="restante">60</span> s</div>
     <div id="vivo" class="video-chip vivo-chip e-inactivo" aria-live="polite"><span id="vivo-estado">Detenido</span></div>
+    <label id="zoom-caja" class="zoom-caja" hidden><span class="visualmente-oculto">Zoom de la cámara</span>
+      <input id="zoom" type="range" min="1" max="2" step="0.1" value="1"><span id="zoom-valor" class="num">1.0×</span></label>
   </div>
 
   <section class="caseta-tarjeta" aria-live="polite" aria-label="Vehículo en el punto de cobro">
@@ -30,7 +32,7 @@
       <li id="f-ejes"><span class="etapa">{% icono "check" %}Ejes</span><span class="valor" id="v-ejes">–</span></li>
       <li id="f-pasajeros"><span class="etapa">{% icono "check" %}Pasajeros</span><span class="valor" id="v-pasajeros">–</span></li>
     </ol>
-    <div id="resultado" class="resultado-cobro"><span id="resultado-texto">Esperando vehículo</span><span id="resultado-hora" class="num"></span></div>
+    <div id="resultado" class="resultado-cobro"><span class="resultado-textos"><span id="resultado-texto">Esperando vehículo</span><span id="resultado-detalle" class="resultado-linea" hidden></span></span><span id="resultado-hora" class="num"></span></div>
     <div class="solo-escritorio">
       <div id="captura" class="captura-grande">{% icono "imagen" %}</div>
       <p id="lectura" class="tenue pequeno mt-2"></p>
@@ -53,8 +55,10 @@
 {% block scripts %}
 <script>
 (function () {
-  // Se pide 1920x1080 con el menor zoom (gran angular) y se envían frames de 1280 px. El servidor lleva el flujo
-  // del vehículo (placa → tipo → ejes → pasajeros) y cobra solo cuando sale de cuadro o pasan 8 s.
+  // La cámara se pide según la orientación (vertical 9:16, horizontal 16:9) y se vuelve a pedir al girar el
+  // celular. El video llena su caja (object-fit: cover) y el frame enviado es exactamente lo que se ve, derecho y
+  // con el lado mayor de hasta 1280 px. El servidor lleva el flujo del vehículo (placa → tipo → ejes → pasajeros)
+  // y cobra solo cuando sale de cuadro o pasan 8 s.
   var FPS = 2, CALIDAD = 0.8, ANCHO_MAX = 1280, DURACION_S = 60, TIMEOUT_MS = 25000;
   var CASETA_ID = JSON.parse(document.getElementById("caseta-id").textContent);
   var $ = function (id) { return document.getElementById(id); };
@@ -124,7 +128,7 @@
     $("ultimo-error-caja").hidden = false;
   }
 
-  // --- Cajas sobre el video (coordenadas del frame enviado → pantalla, con object-fit: contain) --------
+  // --- Cajas sobre el video (coordenadas del frame enviado → pantalla; el frame es lo visible del video) ---
   function dibujarCajas(lec, anchoFrame, altoFrame) {
     var w = cajas.clientWidth, h = cajas.clientHeight, ctx = cajas.getContext("2d");
     var dpr = window.devicePixelRatio || 1;
@@ -134,7 +138,7 @@
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
     if (!lec || !anchoFrame || !altoFrame) return;
-    var escala = Math.min(w / anchoFrame, h / altoFrame);  // video con object-fit: contain
+    var escala = Math.max(w / anchoFrame, h / altoFrame);  // mismo encuadre que object-fit: cover
     var dx = (w - anchoFrame * escala) / 2, dy = (h - altoFrame * escala) / 2;
     function caja(c, color, etiqueta, grosor) {
       if (!c) return;
@@ -161,39 +165,102 @@
 
   function limpiarCajas() { dibujarCajas(null); }
 
-  // --- Cámara gran angular -------------------------------------------------------------------------
-  var VIDEO = { width: { ideal: 1920 }, height: { ideal: 1080 } };
-  var ANCHA = /ultra|wide|gran ?angular|0[.,]5/i, TRASERA = /back|rear|tras|environment|posterior/i;
+  // --- Cámara: orientación, encuadre y zoom --------------------------------------------------------
+  var camaraId = null, zoomActual = null, orientacion = null, reorientando = false, esperaGiro = null;
 
-  function pedir(extra) {
-    return navigator.mediaDevices.getUserMedia({ video: Object.assign({}, VIDEO, extra), audio: false });
+  function esVertical() { return window.matchMedia("(orientation: portrait)").matches; }
+
+  function restricciones(vertical) {
+    var v = vertical
+      ? { width: { ideal: 1080 }, height: { ideal: 1920 }, aspectRatio: { ideal: 9 / 16 } }
+      : { width: { ideal: 1920 }, height: { ideal: 1080 }, aspectRatio: { ideal: 16 / 9 } };
+    if (camaraId) v.deviceId = { exact: camaraId }; else v.facingMode = { ideal: "environment" };
+    return v;
   }
 
-  // Si hay varias cámaras traseras, prefiere la de mayor campo de visión (ultra gran angular) y después aplica el
-  // zoom mínimo que permita el dispositivo. Si algo de esto no está soportado, se queda con la cámara trasera normal.
-  function abrirCamara() {
-    return pedir({ facingMode: { ideal: "environment" } }).then(function (s) {
-      if (!navigator.mediaDevices.enumerateDevices) return s;
-      return navigator.mediaDevices.enumerateDevices().then(function (dispositivos) {
-        var actual = s.getVideoTracks()[0].getSettings().deviceId;
-        var ancha = dispositivos.filter(function (d) {
-          return d.kind === "videoinput" && TRASERA.test(d.label) && ANCHA.test(d.label);
-        })[0];
-        if (!ancha || ancha.deviceId === actual) return s;
-        s.getTracks().forEach(function (t) { t.stop(); });
-        return pedir({ deviceId: { exact: ancha.deviceId } }).catch(function () {
-          return pedir({ facingMode: { ideal: "environment" } });
-        });
-      }).catch(function () { return s; });
-    }).then(function (s) {
-      var pista = s.getVideoTracks()[0];
-      var cap = pista && pista.getCapabilities ? pista.getCapabilities() : {};
-      if (cap.zoom && cap.zoom.min != null) {
-        return pista.applyConstraints({ advanced: [{ zoom: cap.zoom.min }] })
-          .then(function () { return s; }, function () { return s; });
-      }
-      return s;
+  function pedirStream(vertical) {
+    return navigator.mediaDevices.getUserMedia({ video: restricciones(vertical), audio: false }).catch(function (e) {
+      if (!camaraId) throw e;
+      camaraId = null;  // la cámara anterior ya no está disponible: cualquier trasera
+      return navigator.mediaDevices.getUserMedia({ video: restricciones(vertical), audio: false });
     });
+  }
+
+  // Abre la cámara trasera con la relación de aspecto de la orientación actual y aplica el zoom inicial.
+  function abrirCamara(vertical) {
+    return pedirStream(vertical).then(function (s) {
+      var pista = s.getVideoTracks()[0];
+      var conf = pista && pista.getSettings ? pista.getSettings() : {};
+      if (conf.deviceId) camaraId = conf.deviceId;
+      return prepararZoom(pista).then(function () { return s; });
+    });
+  }
+
+  // Zoom: no al mínimo. Si el rango baja de 1 (gran angular) se usa 1.0; si no, mínimo + 30 % del rango.
+  // El control deslizante solo aparece si el dispositivo expone zoom; el valor elegido se conserva al girar.
+  function prepararZoom(pista) {
+    var cap = pista && pista.getCapabilities ? pista.getCapabilities() : {};
+    var z = cap.zoom, control = $("zoom");
+    if (!z || z.min == null || z.max == null || !(z.max > z.min)) {
+      $("zoom-caja").hidden = true;
+      return Promise.resolve();
+    }
+    var inicial = z.min < 1 ? Math.min(1, z.max) : z.min + 0.3 * (z.max - z.min);
+    var valor = zoomActual != null ? Math.min(z.max, Math.max(z.min, zoomActual)) : inicial;
+    control.min = z.min; control.max = z.max; control.step = z.step || 0.1; control.value = valor;
+    $("zoom-caja").hidden = false;
+    return aplicarZoom(pista, valor);
+  }
+
+  function aplicarZoom(pista, valor) {
+    if (!pista || !pista.applyConstraints) return Promise.resolve();
+    return pista.applyConstraints({ advanced: [{ zoom: valor }] }).then(function () {
+      zoomActual = valor;
+      $("zoom-valor").textContent = valor.toFixed(1) + "×";
+    }, function () {});
+  }
+
+  // Al girar el celular se vuelve a pedir el stream con la nueva relación de aspecto. El paso en curso vive en el
+  // servidor y la cámara no se detiene: se abre el stream nuevo antes de cerrar el anterior (si el dispositivo no
+  // lo permite, se cierra primero) para que el corte sea mínimo.
+  function programarGiro() {
+    limpiarCajas();
+    clearTimeout(esperaGiro);
+    esperaGiro = setTimeout(reorientar, 250);  // las medidas se actualizan después del evento
+  }
+
+  function reorientar() {
+    var vertical = esVertical();
+    if (!flujo || reorientando || vertical === orientacion) return;
+    reorientando = true;
+    orientacion = vertical;
+    var anterior = flujo;
+    function cerrar(s) { s.getTracks().forEach(function (t) { t.stop(); }); }
+    abrirCamara(vertical).catch(function () {
+      cerrar(anterior);
+      return abrirCamara(vertical);
+    }).then(function (nuevo) {
+      if (!flujo) { cerrar(nuevo); return; }  // se detuvo mientras tanto
+      flujo = nuevo;
+      video.srcObject = nuevo;
+      if (anterior !== nuevo) cerrar(anterior);
+      return video.play();
+    }).catch(function (e) {
+      detener();
+      aviso(mensajeError(e));
+    }).then(function () {
+      reorientando = false;
+      if (flujo && esVertical() !== orientacion) programarGiro();  // giró otra vez mientras tanto
+    });
+  }
+
+  // Parte del video que se ve en pantalla (object-fit: cover recorta lo que sobra, centrado).
+  function encuadre() {
+    var vw = video.videoWidth, vh = video.videoHeight;
+    var w = video.clientWidth || vw, h = video.clientHeight || vh;
+    var escala = Math.max(w / vw, h / vh);
+    var sw = Math.min(vw, w / escala), sh = Math.min(vh, h / escala);
+    return { x: (vw - sw) / 2, y: (vh - sh) / 2, w: sw, h: sh };
   }
 
   // --- Cámara --------------------------------------------------------------------------------------
@@ -203,7 +270,8 @@
     aviso("");
     btn.disabled = true;
     $("btn-reanudar").hidden = true;
-    abrirCamara().then(function (s) {
+    orientacion = esVertical();
+    abrirCamara(orientacion).then(function (s) {
       flujo = s;
       video.srcObject = s;
       return video.play();
@@ -226,6 +294,8 @@
     clearInterval(temporizador); clearInterval(reloj); temporizador = reloj = null;
     if (flujo) { flujo.getTracks().forEach(function (t) { t.stop(); }); flujo = null; }
     video.srcObject = null;
+    orientacion = null;
+    $("zoom-caja").hidden = true;
     $("video-caja").classList.remove("grabando");
     $("indicacion-texto").textContent = motivo || "Cámara detenida";
     $("btn-reanudar").hidden = !reanudable;
@@ -245,11 +315,13 @@
   }
 
   function capturar() {
-    if (enCurso || !flujo || !video.videoWidth) return;  // no se envía si el anterior sigue en curso
-    var escala = Math.min(1, ANCHO_MAX / video.videoWidth);
-    var ancho = Math.round(video.videoWidth * escala), alto = Math.round(video.videoHeight * escala);
+    // No se envía si el anterior sigue en curso o si se está cambiando de orientación.
+    if (enCurso || reorientando || !flujo || !video.videoWidth) return;
+    // El navegador ya entrega el video girado según el celular: lo que se ve derecho se dibuja derecho.
+    var r = encuadre(), escala = Math.min(1, ANCHO_MAX / Math.max(r.w, r.h));
+    var ancho = Math.round(r.w * escala), alto = Math.round(r.h * escala);
     lienzo.width = ancho; lienzo.height = alto;
-    lienzo.getContext("2d").drawImage(video, 0, 0, ancho, alto);
+    lienzo.getContext("2d").drawImage(video, r.x, r.y, r.w, r.h, 0, 0, ancho, alto);
     enCurso = true;
     lienzo.toBlob(function (blob) {
       if (!blob || !flujo) { enCurso = false; return; }
@@ -287,7 +359,7 @@
     var valor = {
       placa: f.placa || provisional || "–",
       tipo: f.tipo_texto || "–",
-      ejes: f.ejes != null ? String(f.ejes) : "–",
+      ejes: f.ejes_texto || (f.ejes != null ? String(f.ejes) : "–"),
       pasajeros: f.pasajeros != null ? String(f.pasajeros) : "–"
     };
     var activa = null;
@@ -302,11 +374,13 @@
     $("candado").hidden = !f.placa_bloqueada;
   }
 
-  function resultado(clase, texto, detalle) {
+  function resultado(clase, texto, hora, detalle) {
     var r = $("resultado");
     r.className = "resultado-cobro " + (clase || "");
     $("resultado-texto").textContent = texto;
-    $("resultado-hora").textContent = detalle || "";
+    $("resultado-detalle").textContent = detalle || "";
+    $("resultado-detalle").hidden = !detalle;
+    $("resultado-hora").textContent = hora || "";
     if (clase) { void r.offsetWidth; r.classList.add("nuevo"); }
   }
 
@@ -326,7 +400,9 @@
 
   function mostrarPaso(p, captura, mensaje) {
     var clase = p.estado === "cobrado" ? "cobrado" : p.estado === "saldo_insuficiente" ? "ambar" : "alerta";
-    resultado(clase, mensaje, horaDe(p.created_at));
+    // Siempre "Tarifa: X Bs" y debajo si se cobró o por qué no.
+    var tarifa = "Tarifa: " + (p.tarifa != null ? p.tarifa + " Bs" : "–");
+    resultado(clase, tarifa, horaDe(p.created_at), p.resultado_texto || mensaje);
     ponerCaptura(captura);
     $("lectura").textContent = (p.nota || "") +
       (p.fuente_categoria === "registro" ? " Tipo tomado del registro del vehículo." : "");
@@ -370,7 +446,15 @@
   document.addEventListener("visibilitychange", function () {
     if (document.hidden && flujo) detener("En pausa", true);
   });
-  window.addEventListener("resize", limpiarCajas);
+  window.addEventListener("resize", programarGiro);
+  if (window.screen && screen.orientation && screen.orientation.addEventListener) {
+    screen.orientation.addEventListener("change", programarGiro);
+  } else {
+    window.addEventListener("orientationchange", programarGiro);
+  }
+  $("zoom").addEventListener("input", function () {
+    if (flujo) aplicarZoom(flujo.getVideoTracks()[0], parseFloat(this.value));
+  });
   var problema = soporte();
   if (problema) aviso(problema);
 })();

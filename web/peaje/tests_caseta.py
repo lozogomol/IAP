@@ -221,12 +221,12 @@ class RegistrarPasoTests(TestCase):
 
     def test_no_registrada_conserva_categoria_detectada(self):
         paso, _, info = cobro.registrar_paso(self.caseta.id, "6999ZZZ", categoria="moto")
-        self.assertEqual((paso.estado, paso.monto, paso.categoria_detectada), ("no_registrada", Decimal("0"), "moto"))
+        self.assertEqual((paso.estado, paso.monto, paso.categoria_detectada), ("no_registrada", Decimal("2"), "moto"))
         self.assertEqual(info["fuente_categoria"], "inferencia")
 
     def test_saldo_insuficiente(self):
         paso, _, _ = cobro.registrar_paso(self.caseta.id, "1987FHK")
-        self.assertEqual((paso.estado, paso.monto), ("saldo_insuficiente", Decimal("0")))
+        self.assertEqual((paso.estado, paso.monto), ("saldo_insuficiente", Decimal("4")))  # tarifa no cobrada
         self.assertTrue(Alerta.objects.filter(paso=paso, tipo="saldo_insuficiente").exists())
 
     def test_no_registrada_categoria_desconocida(self):
@@ -238,7 +238,7 @@ class RegistrarPasoTests(TestCase):
 
     def test_inactivo_no_se_cobra(self):
         paso, _, _ = cobro.registrar_paso(self.caseta.id, "654TRB")
-        self.assertEqual((paso.estado, paso.monto), ("no_registrada", Decimal("0")))
+        self.assertEqual((paso.estado, paso.monto), ("no_registrada", Decimal("2")))  # tarifa no cobrada
         self.assertEqual(Vehiculo.objects.get(placa="654TRB").saldo, Decimal("40"))
 
     def test_antiduplicado_30s(self):
@@ -425,7 +425,7 @@ class ApiFrameTests(TestCase):
                          (3, 1, 4, [[1, 2, 3, 4]]))
         self.assertEqual(lec["latencia_modelos_ms"], {"m1": 1, "m2": 2, "m3": 3, "m4": 4})
         d = ultimo.json()
-        self.assertEqual((d["accion"], d["motivo"], d["mensaje"]), ("registrado", "salida", "Cobrado 10.00 Bs"))
+        self.assertEqual((d["accion"], d["motivo"], d["mensaje"]), ("registrado", "salida", "Tarifa: 10.00 Bs · Cobrado"))
         p = d["paso"]
         self.assertEqual((p["categoria"], p["ejes"], p["pasajeros"], p["tarifa"]), ("camion", 3, 1, "10.00"))
         self.assertEqual(base64.b64decode(d["captura"].split(",", 1)[1]), evidencia)
@@ -453,7 +453,7 @@ class ApiFrameTests(TestCase):
         self.assertFalse(Paso.objects.filter(placa_normalizada="3876LBD").exists())  # nada manual: espera la salida
         PasoEnCurso.objects.filter(caseta=self.caseta).update(ultimo_visto_at=timezone.now() - timedelta(seconds=3))
         d = self._frame([]).json()
-        self.assertEqual((d["accion"], d["mensaje"]), ("registrado", "Cobrado 4.00 Bs"))
+        self.assertEqual((d["accion"], d["mensaje"]), ("registrado", "Tarifa: 4.00 Bs · Cobrado"))
         p = d["paso"]
         self.assertEqual((p["placa"], p["estado"], p["tarifa"], p["categoria"], p["ejes"], p["fuente_categoria"]),
                          ("3876LBD", "cobrado", "4.00", "auto", 2, "registro"))
@@ -465,7 +465,7 @@ class ApiFrameTests(TestCase):
 
     def test_alerta_en_el_mensaje(self):
         d = self._pasar([_lectura("9999ZZZ", 0.9)])[1].json()
-        self.assertEqual(d["mensaje"], "Alerta: placa no registrada (posible evasión)")
+        self.assertEqual(d["mensaje"], "Tarifa: – · No cobrado: placa no registrada")  # sin tipo: sin tarifa
 
     def test_duplicado_no_cobra_y_dice_hace_cuanto(self):
         self._pasar([_lectura("3876LBD", 0.9)])
@@ -583,7 +583,11 @@ class ConsultaTests(TestCase):
         r = self.client.get("/caseta")
         self.assertContains(r, "<h1>Punto de cobro</h1>", html=False)
         self.assertContains(r, "Iniciar")
-        self.assertContains(r, 'facingMode: { ideal: "environment" }')
+        self.assertContains(r, 'facingMode = { ideal: "environment" }')
+        self.assertContains(r, "aspectRatio: { ideal: 9 / 16 }")   # vertical
+        self.assertContains(r, "aspectRatio: { ideal: 16 / 9 }")   # horizontal
+        self.assertContains(r, 'screen.orientation.addEventListener("change"')
+        self.assertContains(r, 'id="zoom"')
         self.assertNotContains(r, "<select")  # sin selector de caseta
 
 
@@ -664,3 +668,73 @@ class UsuariosAdminTests(TestCase):
         entrar(self.client, self.oper)
         Usuario.objects.filter(pk=self.oper.pk).update(rol="admin")
         self.assertEqual(self.client.get("/usuarios").status_code, 200)
+
+
+class TarifaSiempreTests(TestCase):
+    """La tarifa se calcula y se guarda en el paso en los 3 estados; la recaudación suma solo lo cobrado."""
+
+    def setUp(self):
+        self.caseta = Caseta.objects.first()
+
+    def test_tarifas_exactas_en_la_base(self):
+        # Base de 2 ejes: moto 2, auto 4, minibus 6, bus 8, camion 8 Bs; +2 Bs por cada eje sobre 2.
+        esperadas = {("moto", 2): 2, ("auto", 2): 4, ("minibus", 2): 6, ("bus", 2): 8, ("camion", 2): 8}
+        for categoria, base in (("auto", 4), ("minibus", 6), ("bus", 8), ("camion", 8)):
+            for ejes in range(3, 7):
+                esperadas[(categoria, ejes)] = base + 2 * (ejes - 2)
+        filas = {(t.categoria, t.ejes): t.monto for t in Tarifa.objects.all()}
+        self.assertEqual(filas, {k: Decimal(v) for k, v in esperadas.items()})
+        for (categoria, ejes), monto in esperadas.items():
+            self.assertEqual(cobro.tarifa_de(categoria, ejes), (Decimal(monto), ejes))
+        self.assertEqual(cobro.tarifa_de("camion", 7), (Decimal("18"), 7))   # sin fila: base + 2 por eje
+        self.assertEqual(cobro.tarifa_de("auto", None), (Decimal("4"), 2))   # sin ejes detectados: 2
+
+    def test_monto_guardado_en_los_3_estados(self):
+        Vehiculo.objects.filter(placa="3876LBD").update(saldo=Decimal("100"))
+        Vehiculo.objects.filter(placa="1987FHK").update(saldo=Decimal("1"))
+        casos = (("3876LBD", "cobrado", "Cobrado", Decimal("90")),
+                 ("1987FHK", "saldo_insuficiente", "No cobrado: saldo insuficiente", Decimal("1")),
+                 ("7777XYZ", "no_registrada", "No cobrado: placa no registrada", None))
+        for placa, estado, texto, saldo in casos:
+            paso, _, info = cobro.registrar_paso(self.caseta.id, placa, categoria="camion", ejes=3)
+            self.assertEqual((paso.estado, paso.monto), (estado, Decimal("10")), placa)
+            d = cobro.paso_a_dict(paso, info)
+            self.assertEqual((d["tarifa"], d["resultado_texto"], d["cobrado"]), ("10.00", texto, estado == "cobrado"))
+            self.assertEqual(d["monto_cobrado"], "10.00" if estado == "cobrado" else "0.00")
+            if saldo is not None:
+                self.assertEqual(Vehiculo.objects.get(placa=placa).saldo, saldo)
+
+    def test_dos_ejes_detectados_muestra_monto_aunque_no_este_registrada(self):
+        paso, _, info = cobro.registrar_paso(self.caseta.id, "5555ABC", categoria="auto", ejes=2)
+        d = cobro.paso_a_dict(paso, info)
+        self.assertEqual((paso.estado, d["tarifa"], d["ejes_texto"]), ("no_registrada", "4.00", "2"))
+
+    def test_sin_ejes_detectados_es_2_estimado(self):
+        paso, _, info = cobro.registrar_paso(self.caseta.id, "5555ABC", categoria="bus")
+        d = cobro.paso_a_dict(paso, info)
+        self.assertEqual((paso.ejes_detectados, d["ejes_tarifa"], d["ejes_texto"], d["tarifa"]),
+                         (None, 2, "2 (estimado)", "8.00"))
+
+    def test_recaudacion_solo_de_cobrados(self):
+        from . import panel
+        Paso.objects.all().delete()
+        Vehiculo.objects.filter(placa="3876LBD").update(saldo=Decimal("100"))
+        Vehiculo.objects.filter(placa="1987FHK").update(saldo=Decimal("0"))
+        cobro.registrar_paso(self.caseta.id, "3876LBD", categoria="bus", ejes=3)       # cobrado 10
+        cobro.registrar_paso(self.caseta.id, "1987FHK", categoria="camion", ejes=4)    # saldo insuficiente 12
+        cobro.registrar_paso(self.caseta.id, "7777XYZ", categoria="minibus", ejes=2)   # no registrada 6
+        self.assertEqual(sorted(Paso.objects.values_list("monto", flat=True)),
+                         [Decimal("6"), Decimal("10"), Decimal("12")])
+        self.assertEqual(panel.kpis()["recaudacion_hoy"], "10.00")
+
+    def test_pantallas_muestran_tarifa_y_resultado(self):
+        entrar(self.client, Usuario.objects.create(email_google="op@test.bo", nombre="Op", rol="admin"))
+        cobro.registrar_paso(self.caseta.id, "7777XYZ", categoria="auto")
+        r = self.client.get("/pasos")
+        self.assertContains(r, "Tarifa: 4,00 Bs")  # formato local (es)
+        self.assertContains(r, "No cobrado: placa no registrada")
+        self.assertContains(r, "2 (estimado)")
+        self.assertEqual(self.client.get("/").status_code, 200)  # el panel carga con la nueva fila
+        c = cobro.consultar_placa("7777XYZ")["ultimo_paso"]
+        self.assertEqual((c["tarifa"], c["resultado_texto"], c["ejes_texto"]),
+                         ("4.00", "No cobrado: placa no registrada", "2 (estimado)"))

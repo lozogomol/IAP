@@ -72,13 +72,15 @@
     var info = el("div");
     info.appendChild(el("div", "placa", p.placa));
     var vehiculo = [p.categoria_texto || "",
-                    p.ejes != null ? p.ejes + " ejes" : "",
+                    p.ejes_texto ? p.ejes_texto + " ejes" : "",
                     p.pasajeros != null ? p.pasajeros + (p.pasajeros === 1 ? " pasajero" : " pasajeros") : ""]
       .filter(Boolean).join(" · ");
     info.appendChild(el("div", "hora", (vehiculo ? vehiculo + " · " : "") + p.fecha + " · " + p.hora));
     li.appendChild(info);
     li.appendChild(el("span", "etiqueta e-" + p.estado, p.estado_texto));
-    li.appendChild(el("span", "monto", "Bs " + p.monto));
+    var m = el("span", "monto", "Tarifa: " + (p.tarifa != null ? p.tarifa + " Bs" : "–"));
+    m.appendChild(el("span", "resultado-linea " + (p.cobrado ? "ok" : "no"), p.resultado_texto || p.estado_texto));
+    li.appendChild(m);
     return li;
   }
 

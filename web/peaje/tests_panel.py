@@ -93,7 +93,7 @@ class PanelTests(MediaTemporal):
         self.assertLessEqual(len(d["pasos"]), 10)
         self.assertEqual(set(d["pasos"][0]),
                          {"id", "placa", "estado", "estado_texto", "categoria", "categoria_texto", "ejes", "pasajeros",
-                          "monto", "hora", "fecha", "imagen_url"})
+                          "monto", "hora", "fecha", "imagen_url", "ejes_texto", "tarifa", "cobrado", "resultado_texto"})
 
     def test_sin_pusher_no_carga_pusher_js(self):
         entrar(self.client, self.oper)

@@ -365,13 +365,17 @@ dialog[open] { animation: entrar 150ms ease-out; }
   .lista-pasos .mini-btn, .lista-pasos .sin-captura { grid-row: auto; }
 }
 
-/* 16. Punto de cobro: video completo (sin recortar) + secuencia Placa → Tipo → Ejes → Pasajeros -------- */
+/* 16. Punto de cobro: video a sangre (cover) + secuencia Placa → Tipo → Ejes → Pasajeros; vertical y horizontal */
 .pagina-caseta main.contenedor { padding: 0; max-width: none; }
 .caseta { display: flex; flex-direction: column; height: calc(100vh - var(--alto-barra)); height: calc(100dvh - var(--alto-barra)); }
 .caseta .pagina-cab, .caseta .solo-escritorio { display: none; }
 .caseta .aviso { margin: 0; border-width: 0 0 1px; }
 .video-caja { position: relative; flex: 1 1 auto; min-height: 0; background: var(--n-0); overflow: hidden; }
-.video-caja video { width: 100%; height: 100%; object-fit: contain; }
+.video-caja video { display: block; width: 100%; height: 100%; object-fit: cover; }
+.zoom-caja { position: absolute; z-index: 2; top: 12px; right: 12px; display: inline-flex; align-items: center; gap: 6px;
+             padding: 4px 8px; background: rgba(3, 7, 18, .55); color: #fff; font-size: var(--t-xs); font-weight: 600; }
+.zoom-caja[hidden] { display: none; }
+.zoom-caja input { width: 88px; margin: 0; accent-color: #fff; }
 .cajas-video { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 .indicacion { position: absolute; inset: 0; z-index: 1; display: flex; flex-direction: column; gap: 12px; align-items: center;
               justify-content: center; padding: var(--e-3); text-align: center; color: #fff; font-size: var(--t-sm);
@@ -422,6 +426,11 @@ dialog[open] { animation: entrar 150ms ease-out; }
 .resultado-cobro.alerta { background: var(--c-peligro-suave); border-left-color: var(--c-peligro); color: var(--c-peligro-texto); }
 .resultado-cobro.ambar { background: var(--c-ambar-suave); border-left-color: var(--c-ambar); color: var(--c-ambar-texto); }
 .resultado-cobro.nuevo { animation: entrar 300ms ease-out; }
+.resultado-textos { display: flex; flex-direction: column; min-width: 0; }
+.resultado-linea { display: block; margin-top: 2px; font-size: var(--t-xs); font-weight: 600; white-space: nowrap; }
+.resultado-linea[hidden] { display: none; }
+.resultado-linea.ok { color: var(--c-exito-texto); }
+.resultado-linea.no { color: var(--c-peligro-texto); }
 .barra-accion { flex: 0 0 auto; padding: 0 var(--e-3) calc(12px + env(safe-area-inset-bottom)); background: #fff; }
 .barra-accion .boton { width: 100%; }
 .caseta-extra { font-size: var(--t-sm); }
@@ -434,10 +443,20 @@ dialog[open] { animation: entrar 150ms ease-out; }
 .lista-datos li:last-child { border-bottom: 0; }
 .lista-datos li > span:first-child { color: var(--c-tenue); }
 .lista-datos b { font-weight: 600; text-align: right; overflow-wrap: anywhere; }
+/* Celular/tablet en horizontal: video a la izquierda (~65 %) y la tarjeta del flujo a la derecha. */
+@media (orientation: landscape) and (max-width: 1023px) {
+  .caseta { display: grid; grid-template-columns: minmax(0, 65fr) minmax(0, 35fr); grid-template-rows: auto minmax(0, 1fr) auto;
+            grid-template-areas: "aviso aviso" "video tarjeta" "video accion"; }
+  .caseta .aviso { grid-area: aviso; }
+  .video-caja { grid-area: video; }
+  .caseta-tarjeta { grid-area: tarjeta; overflow-y: auto; padding: 8px 12px; border-top: 0; border-left: 3px solid var(--n-2); }
+  .pasos-flujo { grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 8px; }
+  .barra-accion { grid-area: accion; padding: 8px 12px calc(8px + env(safe-area-inset-bottom)); border-left: 3px solid var(--n-2); }
+}
 .diagnostico { font-size: var(--t-xs); color: var(--c-tenue); overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
 @media (min-width: 1024px) {
   .pagina-caseta main.contenedor { padding: var(--e-5) var(--e-4) var(--e-6); max-width: var(--ancho-max); }
-  .caseta { display: grid; height: auto; gap: var(--e-4); grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+  .caseta { display: grid; height: auto; gap: var(--e-4); grid-template-columns: minmax(0, 65fr) minmax(0, 35fr);
             grid-template-areas: "cab cab" "aviso aviso" "video tarjeta" "accion tarjeta" "extra tarjeta"; align-items: start; }
   .caseta .pagina-cab { display: flex; grid-area: cab; margin: 0; }
   .caseta .solo-escritorio { display: block; }

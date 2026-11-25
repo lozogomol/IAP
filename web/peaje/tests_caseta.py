@@ -19,14 +19,34 @@ from django.utils import timezone
 from . import cobro, flujo
 from .auth import emitir_jwt
 from .inferencia import InferenciaNoDisponible, interpretar, interpretar_vehiculo
-from .models import Alerta, Caseta, LecturaPlaca, Paso, PasoEnCurso, Tarifa, Usuario, Vehiculo
+from .models import Alerta, Caseta, EvidenciaImagen, LecturaPlaca, Paso, PasoEnCurso, Tarifa, Usuario, Vehiculo
 from .tests import VERIFICAR, entrar
 
 INFERIR = "peaje.api.inferir"
 
 
+def jpeg_real(ancho=1280, alto=720, color=(40, 90, 160)):
+    """Bytes de un JPEG real (las evidencias se reducen con Pillow: no sirven bytes inventados)."""
+    import io
+    from PIL import Image
+    salida = io.BytesIO()
+    Image.new("RGB", (ancho, alto), color).save(salida, "JPEG", quality=90)
+    return salida.getvalue()
+
+
+FRAME = jpeg_real()
+
+
 def _jpeg():
-    return SimpleUploadedFile("frame.jpg", b"\xff\xd8\xff\xe0falso", content_type="image/jpeg")
+    return SimpleUploadedFile("frame.jpg", FRAME, content_type="image/jpeg")
+
+
+def evidencia_de(paso):
+    """(ancho, alto, color del centro) de la evidencia guardada en la base de datos."""
+    import io
+    from PIL import Image
+    img = Image.open(io.BytesIO(bytes(EvidenciaImagen.objects.get(paso=paso).datos)))
+    return img.width, img.height, img.getpixel((img.width // 2, img.height // 2))
 
 
 def _lectura(placa, confianza=0.7, categoria="", ejes=None, caja=None, clase=None, confianza_clase=None,
@@ -461,7 +481,7 @@ class ApiFrameTests(TestCase):
 
     def test_registra_ejes_pasajeros_y_evidencia_cubierta(self):
         """El paso guarda ejes y pasajeros, cobra por ejes y la captura es la evidencia con personas cubiertas."""
-        evidencia = b"\xff\xd8\xff\xe0personas-cubiertas"
+        evidencia = jpeg_real(800, 600, color=(200, 30, 30))  # la que arma la inferencia (personas cubiertas)
         vehiculo = {**SIN_VEHICULO, "clase": "camion", "ejes": 3, "pasajeros": 1, "llantas_detectadas": 4,
                     "cajas_llantas": [[1, 2, 3, 4]], "latencias": {"m1": 1, "m2": 2, "m3": 3, "m4": 4},
                     "evidencia": evidencia}
@@ -478,14 +498,15 @@ class ApiFrameTests(TestCase):
         self.assertEqual(base64.b64decode(d["captura"].split(",", 1)[1]), evidencia)
         paso = Paso.objects.get(pk=p["id"])
         self.assertEqual((paso.ejes_detectados, paso.pasajeros), (3, 1))
-        with open(Path(settings.MEDIA_ROOT) / paso.imagen_url.removeprefix("/"), "rb") as f:
-            self.assertEqual(f.read(), evidencia)  # nunca el frame original con rostros
+        self.assertEqual(paso.imagen_url, f"/pasos/{paso.pk}/imagen")
+        ancho, alto, color = evidencia_de(paso)  # en la base de datos, y nunca el frame original con rostros
+        self.assertEqual((ancho, alto), (800, 600))
+        self.assertTrue(color[0] > 150 and color[2] < 80, color)
 
     def test_sin_personas_guarda_el_frame(self):
         d = self._pasar([_lectura("3876LBD", 0.9)])[1].json()
         paso = Paso.objects.get(pk=d["paso"]["id"])
-        with open(Path(settings.MEDIA_ROOT) / paso.imagen_url.removeprefix("/"), "rb") as f:
-            self.assertEqual(f.read(), b"\xff\xd8\xff\xe0falso")
+        self.assertEqual(evidencia_de(paso)[:2], (960, 540))  # el frame, reducido a 960 px de lado mayor
 
     def test_votacion_bloqueo_y_cobro_automatico(self):
         d = self._frame([_lectura("3876LBD", 0.7, caja=[1, 2, 3, 4])]).json()

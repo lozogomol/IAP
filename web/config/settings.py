@@ -135,9 +135,7 @@ GEMINI_MODEL_RESPALDO = os.environ.get("GEMINI_MODEL_RESPALDO", "")
 # --- APK (PWABuilder / Trusted Web Activity): Digital Asset Links que sirve /.well-known/assetlinks.json ---
 ASSETLINKS_JSON = os.environ.get("ASSETLINKS_JSON", "")
 
-# --- Capturas de los pasos: Cloudinary si CLOUDINARY_URL (cloudinary://key:secret@nube); si no, disco local. ---
-CLOUDINARY_URL = os.environ.get("CLOUDINARY_URL", "")
-MEDIA_ROOT = BASE_DIR / "media"
+# --- Capturas de los pasos: en la BASE DE DATOS (modelo EvidenciaImagen), nunca en el disco de Render (efímero). ---
 
 # --- Log en la consola (Render la muestra), también con DEBUG=False ---------------------------------------------
 # django.request: los 500 con su traceback completo (sin esto, con DEBUG=False Django solo los manda por correo a

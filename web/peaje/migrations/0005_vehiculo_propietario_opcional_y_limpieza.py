@@ -18,11 +18,15 @@ log = logging.getLogger(__name__)
 def _borrar_imagenes():
     if getattr(settings, "TESTING", False):
         return  # nunca tocar archivos reales al crear la BD de tests
-    shutil.rmtree(Path(settings.MEDIA_ROOT) / "capturas", ignore_errors=True)
-    if settings.CLOUDINARY_URL:
+    # MEDIA_ROOT y CLOUDINARY_URL ya no existen en settings (las evidencias van a la base de datos, migración 0013).
+    media = getattr(settings, "MEDIA_ROOT", "")
+    if media:
+        shutil.rmtree(Path(media) / "capturas", ignore_errors=True)
+    cloudinary = getattr(settings, "CLOUDINARY_URL", "")
+    if cloudinary:
         try:
             import requests
-            u = urlparse(settings.CLOUDINARY_URL)
+            u = urlparse(cloudinary)
             r = requests.delete(f"https://api.cloudinary.com/v1_1/{u.hostname}/resources/image/upload",
                                 params={"prefix": "iap/capturas"}, auth=(u.username, u.password), timeout=20)
             r.raise_for_status()

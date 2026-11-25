@@ -57,8 +57,11 @@ La cámara del navegador exige **HTTPS** (Render, o un túnel ngrok hacia el ser
 - **Pusher** (`PUSHER_APP_ID`, `PUSHER_KEY`, `PUSHER_SECRET`, `PUSHER_CLUSTER`): cada paso nuevo se emite en el canal
   privado `private-peaje` (autorizado en `/pusher/auth` con la sesión). Panel, KPIs, gráfica y banner de alertas se
   actualizan sin recargar. Sin Pusher, el panel consulta `/panel/datos` cada 10 s.
-- **Capturas**: el frame que registró el paso se guarda en Cloudinary si existe `CLOUDINARY_URL`; si no, en
-  `web/media/capturas/` (en Render el disco es efímero: configurar Cloudinary en producción).
+- **Capturas**: la evidencia de cada paso (mejor frame de la placa, con las personas cubiertas) se guarda en la
+  **base de datos** (`evidencias_imagen`, JPEG de máx. 960 px, calidad 75) y se sirve en `/pasos/<id>/imagen` con
+  sesión. Ninguna imagen depende del disco del servidor (en Render es efímero). Sin imagen se muestra un ícono neutro.
+- **Dejar la app como nueva**: `python manage.py limpiar_datos --confirmar` borra pasos, evidencias, alertas,
+  vehículos y el estado temporal del punto de cobro; conserva usuarios, tarifas y casetas.
 - El modo caseta usa siempre la caseta **"Peaje IAP"** (migración 0004); las demás se conservan con su historial.
 - La migración 0005 hace una **limpieza única**: borra pasos, alertas, lecturas y capturas (disco local y carpeta
   `iap/capturas` de Cloudinary), vacía el propietario de los vehículos (campo opcional que ya no se muestra) y no

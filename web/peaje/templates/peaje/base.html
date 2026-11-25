@@ -234,7 +234,21 @@
     })();
   </script>
   {% endif %}
+  <template id="ico-sin-imagen">{% icono "imagen" %}</template>
   <script>
+    // Evidencia que no carga (borrada o inexistente): ícono neutro en vez de una imagen rota.
+    document.addEventListener("error", function (e) {
+      var img = e.target;
+      if (!img || img.tagName !== "IMG") return;
+      var caja = img.closest(".mini-btn, .captura-chat, .captura-grande, .captura-consulta");
+      if (!caja) return;
+      var icono = document.createElement("span");
+      icono.className = "sin-captura";
+      icono.title = "Sin imagen";
+      icono.appendChild(document.getElementById("ico-sin-imagen").content.cloneNode(true));
+      if (caja.matches(".mini-btn, .captura-chat")) caja.replaceWith(icono);  // botón para ampliar: ya no aplica
+      else { caja.innerHTML = ""; caja.appendChild(icono); }
+    }, true);
     // PWA: service worker en la raíz (solo cachea estáticos; nunca la API, el login ni páginas con datos).
     if ("serviceWorker" in navigator) {
       window.addEventListener("load", function () {

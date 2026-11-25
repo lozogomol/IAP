@@ -165,6 +165,27 @@ class Paso(models.Model):
 MOTIVO_PENDIENTE = {"placa_no_registrada": "no registrada", "saldo_insuficiente": "saldo insuficiente"}
 
 
+class EvidenciaImagen(models.Model):
+    """Captura de evidencia del paso, guardada EN LA BASE DE DATOS (el disco de Render es efímero).
+
+    JPEG reducido (lado mayor <= 960 px, calidad 75) del mejor frame de la placa, con las personas ya cubiertas por
+    su máscara (M4). Se sirve en /pasos/<id>/imagen solo con sesión iniciada.
+    """
+
+    paso = models.OneToOneField(Paso, on_delete=models.CASCADE, primary_key=True, related_name="evidencia")
+    datos = models.BinaryField()
+    tipo = models.CharField(max_length=30, default="image/jpeg")
+    ancho = models.PositiveSmallIntegerField()
+    alto = models.PositiveSmallIntegerField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "evidencias_imagen"
+
+    def __str__(self):
+        return f"Evidencia del paso {self.paso_id} ({self.ancho}x{self.alto}, {len(self.datos)} bytes)"
+
+
 class Alerta(models.Model):
     TIPOS = [
         ("placa_no_registrada", "Placa no registrada"),

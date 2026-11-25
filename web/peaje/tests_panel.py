@@ -13,7 +13,7 @@ from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from . import panel, tiempo_real
-from .models import Alerta, Caseta, Paso, Usuario, Vehiculo, caseta_principal
+from .models import Alerta, Caseta, EvidenciaImagen, Paso, Usuario, Vehiculo, caseta_principal
 from .tests import entrar
 from .tests_caseta import INFERIR, _jpeg, _lectura, pasar_vehiculo
 
@@ -123,16 +123,20 @@ class FrameCapturaTiempoRealTests(MediaTemporal):
         """Un vehículo completo: bloquea la placa, sale de cuadro y se cobra solo."""
         return pasar_vehiculo(self.client, self.caseta, [_lectura(placa, 0.95)])[1]
 
-    def test_guarda_captura_local_y_la_sirve(self):
+    def test_guarda_la_evidencia_en_la_base_de_datos_y_la_sirve(self):
         d = self._frame("3876LBD").json()
+        paso = Paso.objects.get(pk=d["paso"]["id"])
         url = d["paso"]["imagen_url"]
-        self.assertTrue(url.startswith("/capturas/"), url)
-        self.assertEqual(Paso.objects.get(pk=d["paso"]["id"]).imagen_url, url)
+        self.assertEqual((url, paso.imagen_url), (f"/pasos/{paso.pk}/imagen", url))
+        ev = EvidenciaImagen.objects.get(paso=paso)
+        self.assertEqual((ev.tipo, ev.ancho, ev.alto), ("image/jpeg", 960, 540))
         r = self.client.get(url)
-        self.assertEqual(r.status_code, 200)
-        self.assertEqual(b"".join(r.streaming_content), b"\xff\xd8\xff\xe0falso")
+        self.assertEqual((r.status_code, r["Content-Type"]), (200, "image/jpeg"))
+        self.assertEqual(r.content, bytes(ev.datos))
+        self.assertEqual(r.content[:2], b"\xff\xd8")
         self.assertEqual(self.client_class().get(url).status_code, 302)  # requiere sesión
-        self.assertEqual(self.client.get("/capturas/../../config/settings.py").status_code, 404)
+        self.assertEqual(self.client.get("/pasos/999999/imagen").status_code, 404)
+        self.assertFalse(any(Path(self.media).rglob("*.jpg")))  # nada en el disco del servidor
         # aparece en vehículos y en la consulta
         self.assertContains(self.client.get("/vehiculos?q=3876"), url)
         c = self.client.get("/api/v1/vehiculos/consulta", {"placa": "3876LBD"}).json()
@@ -177,18 +181,15 @@ class FrameCapturaTiempoRealTests(MediaTemporal):
         self.assertEqual(r.json()["accion"], "fijo")
         fondo.assert_not_called()
 
-    @override_settings(CLOUDINARY_URL="cloudinary://k123:s456@minube")
-    def test_cloudinary(self):
-        respuesta = mock.Mock(**{"json.return_value": {"secure_url": "https://res.cloudinary.com/x.jpg"}})
-        with mock.patch.object(tiempo_real, "en_segundo_plano", _sincrono), \
-                mock.patch("peaje.panel.connection.close"), \
-                mock.patch("peaje.panel.requests.post", return_value=respuesta) as post:
-            d = self._frame("3876LBD").json()
-        self.assertEqual(Paso.objects.get(pk=d["paso"]["id"]).imagen_url, "https://res.cloudinary.com/x.jpg")
-        self.assertIn("/v1_1/minube/image/upload", post.call_args.args[0])
-        enviados = post.call_args.kwargs["data"]
-        firmado = "&".join(f"{k}={enviados[k]}" for k in ("folder", "public_id", "timestamp")) + "s456"
-        self.assertEqual(enviados["signature"], hashlib.sha1(firmado.encode()).hexdigest())
+    def test_imagen_invalida_no_guarda_evidencia_ni_url(self):
+        from . import evidencias
+        caseta = caseta_principal()
+        paso = Paso.objects.create(placa_leida="X", placa_normalizada="1111AAA", caseta=caseta, estado="cobrado")
+        with self.assertLogs("peaje.evidencias", level="WARNING"):
+            self.assertFalse(evidencias.guardar_evidencia(paso, b"no es una imagen"))
+        paso.refresh_from_db()
+        self.assertIsNone(paso.imagen_url)
+        self.assertFalse(EvidenciaImagen.objects.filter(paso=paso).exists())
 
 
 @override_settings(**PUSHER)

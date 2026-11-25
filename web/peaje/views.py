@@ -7,11 +7,9 @@ from decimal import Decimal, InvalidOperation
 
 from django.conf import settings
 from django.contrib import messages
-from django.core.exceptions import SuspiciousFileOperation
-from django.core.files.storage import default_storage
 from django.db import connection
 from django.db.models import F, OuterRef, Subquery
-from django.http import FileResponse, Http404, JsonResponse
+from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.utils.dateparse import parse_date
@@ -24,7 +22,7 @@ from . import cobro
 from . import panel as panel_mod
 from . import tiempo_real
 from .forms import VehiculoForm
-from .models import CATEGORIAS, Alerta, Paso, Usuario, Vehiculo, caseta_principal
+from .models import CATEGORIAS, Alerta, EvidenciaImagen, Paso, Usuario, Vehiculo, caseta_principal
 from .placas import normalizar_placa
 from .servicios import agente
 
@@ -139,15 +137,14 @@ def pusher_auth(request):
 
 
 @login_requerido
-def captura(request, ruta):
-    """Sirve las capturas guardadas en disco local (cuando no hay Cloudinary)."""
-    nombre = f"capturas/{ruta}"
-    try:
-        if not default_storage.exists(nombre):
-            raise Http404
-        return FileResponse(default_storage.open(nombre, "rb"), content_type="image/jpeg")
-    except SuspiciousFileOperation:
+def paso_imagen(request, pk):
+    """Evidencia del paso desde la base de datos (nunca del disco del servidor). Solo con sesión iniciada."""
+    evidencia = EvidenciaImagen.objects.filter(paso_id=pk).only("datos", "tipo").first()
+    if evidencia is None:
         raise Http404
+    respuesta = HttpResponse(bytes(evidencia.datos), content_type=evidencia.tipo)
+    respuesta["Cache-Control"] = "private, max-age=86400"
+    return respuesta
 
 
 @login_requerido

@@ -253,17 +253,21 @@ class RegistrarPasoTests(TestCase):
 
 
 def pasar_vehiculo(client, caseta, lecturas, vehiculo=None, **extra):
-    """Un vehículo completo por la API: frame con su placa (bloquea) y, 3 s sin verlo, frame vacío (sale y cobra)."""
+    """Un vehículo completo por la API: dos frames con su placa (bloquea y vota tipo/ejes) y, si aún faltan datos,
+    pasados los 6 s un frame vacío (se completa con respaldos y cobra). Devuelve (primera respuesta, la del cobro)."""
     url = "/api/v1/pasos/frame"
     with mock.patch(INFERIR, return_value=(lecturas, 50, vehiculo or SIN_VEHICULO)):
         primero = client.post(url, {"imagen": _jpeg(), "caseta_id": caseta.id}, **extra)
-    PasoEnCurso.objects.filter(caseta=caseta).update(ultimo_visto_at=timezone.now() - timedelta(seconds=3))
+        segundo = client.post(url, {"imagen": _jpeg(), "caseta_id": caseta.id}, **extra)
+    if segundo.json().get("accion") == "registrado":
+        return primero, segundo
+    PasoEnCurso.objects.filter(caseta=caseta).update(bloqueada_at=timezone.now() - timedelta(seconds=7))
     with mock.patch(INFERIR, return_value=([], 50, SIN_VEHICULO)):
         return primero, client.post(url, {"imagen": _jpeg(), "caseta_id": caseta.id}, **extra)
 
 
 class FlujoTests(TestCase):
-    """Máquina de estados del punto de cobro: un vehículo = un paso."""
+    """Máquina de estados del punto de cobro: un vehículo = un cobro, con resultado fijo por placa."""
 
     def setUp(self):
         self.caseta = Caseta.objects.first()
@@ -276,13 +280,18 @@ class FlujoTests(TestCase):
     def _con(self, clase="", ejes=None, pasajeros=None):
         return {**SIN_VEHICULO, "clase": clase, "caja_vehiculo": [0, 0, 100, 100], "ejes": ejes, "pasajeros": pasajeros}
 
+    def _completo(self, t, placa, categoria="auto", ejes=2):
+        """Dos frames con tipo y ejes: el paso se completa y cobra en el segundo."""
+        self._f(t, [_lectura(placa, 0.9, categoria=categoria, ejes=ejes)], self._con(categoria, ejes))
+        return self._f(t + 0.5, [_lectura(placa, 0.9, categoria=categoria, ejes=ejes)], self._con(categoria, ejes))
+
     def test_placa_bloqueada_no_cambia(self):
         r = self._f(0, [_lectura("3876LBD", 0.9, categoria="auto")], self._con("auto"))
         self.assertEqual((r["accion"], r["flujo"]["placa"], r["flujo"]["placa_bloqueada"]), ("en_curso", "3876LBD", True))
         for t in (0.5, 1, 1.5):  # otra lectura (incluso más confiable) no cambia la placa del paso
             r = self._f(t, [_lectura("2451KTP", 0.99, categoria="moto")], self._con("moto"))
             self.assertEqual(r["flujo"]["placa"], "3876LBD")
-        r = self._f(4, [])
+        r = self._f(6, [])
         self.assertEqual((r["accion"], r["paso"].placa_normalizada), ("registrado", "3876LBD"))
         self.assertFalse(Paso.objects.filter(placa_normalizada="2451KTP").exists())
 
@@ -298,60 +307,96 @@ class FlujoTests(TestCase):
         self.assertEqual((r["flujo"]["tipo"], r["flujo"]["tipo_listo"], r["flujo"]["etapa"]), ("minibus", True, "ejes"))
         for t in (1.5, 2, 2.5):  # ya bloqueado: votos posteriores no lo cambian
             self._f(t, [_lectura("5630KRT", 0.8, categoria="auto")], self._con("auto"))
-        paso = self._f(5, [])["paso"]
+        paso = self._f(6, [])["paso"]
         self.assertEqual((paso.categoria_detectada, paso.monto), ("minibus", Decimal("6")))
 
-    def test_ejes_por_mayoria_y_eje_extra_en_la_tarifa(self):
+    def test_con_tipo_y_ejes_cobra_al_instante(self):
         self._f(0, [_lectura("4720MDX", 0.9, categoria="camion", ejes=4)], self._con("camion", 4))
-        self._f(0.5, [_lectura("4720MDX", 0.9, categoria="camion", ejes=3)], self._con("camion", 3))
+        r = self._f(0.5, [_lectura("4720MDX", 0.9, categoria="camion", ejes=3)], self._con("camion", 3))
+        self.assertEqual(r["accion"], "en_curso")  # tipo listo, ejes empatados
         r = self._f(1, [_lectura("4720MDX", 0.9, categoria="camion", ejes=4)], self._con("camion", 4))
-        self.assertEqual((r["flujo"]["ejes"], r["flujo"]["ejes_listo"]), (4, True))
-        paso = self._f(4, [])["paso"]
-        self.assertEqual((paso.ejes_detectados, paso.monto, paso.estado), (4, Decimal("12"), "cobrado"))  # 8 + 2·2
+        self.assertEqual((r["accion"], r["motivo"]), ("registrado", "completo"))
+        self.assertEqual((r["paso"].ejes_detectados, r["paso"].monto, r["paso"].estado), (4, Decimal("12"), "cobrado"))
+        self.assertEqual(r["evidencia"], b"\xff\xd8frame")  # mejor frame de la placa
 
     def test_pasajeros_maximo_estable(self):
-        self._f(0, [_lectura("4471LCH", 0.9, categoria="bus")], self._con("bus", 2, 1))
+        self._f(0, [_lectura("4471LCH", 0.9, categoria="bus")], self._con("bus", None, 1))
         for t, n in ((0.5, 3), (1, 3), (1.5, 2), (1.8, 5)):  # 5 se vio una sola vez: no es estable
-            self._f(t, [], self._con("bus", 2, n))
-        self.assertEqual(self._f(4, [])["paso"].pasajeros, 3)
+            self._f(t, [], self._con("bus", None, n))
+        self.assertEqual(self._f(6, [])["paso"].pasajeros, 3)
 
-    def test_registro_automatico_al_salir_de_cuadro(self):
-        self._f(0, [_lectura("3876LBD", 0.9, categoria="auto")], self._con("auto", 2))
-        self.assertEqual(self._f(1, [], self._con("auto", 2))["accion"], "en_curso")
-        self.assertEqual(self._f(2.5, [])["accion"], "en_curso")  # 1,5 s sin verlo: todavía no salió
-        r = self._f(3.1, [])
-        self.assertEqual((r["accion"], r["motivo"]), ("registrado", "salida"))
-        self.assertEqual((r["paso"].estado, r["paso"].monto), ("cobrado", Decimal("4")))
-        self.assertEqual(Vehiculo.objects.get(placa="3876LBD").saldo, Decimal("246"))
-        self.assertEqual(r["evidencia"], b"\xff\xd8frame")  # mejor frame de la placa
-        self.assertFalse(PasoEnCurso.objects.get(caseta=self.caseta).placa)  # listo para el siguiente vehículo
+    def test_misma_placa_no_genera_segundo_paso(self):
+        r = self._completo(0, "3876LBD")
+        self.assertEqual(r["accion"], "registrado")
+        paso = r["paso"]
+        for i in range(60):  # 9 minutos con la misma placa en cuadro (y frames sin placa en medio)
+            t = 1 + i * 9
+            r = self._f(t, [_lectura("3876LBD", 0.95, categoria="camion", ejes=5)], self._con("camion", 5))
+            self.assertEqual((r["accion"], r["paso"].pk), ("fijo", paso.pk))
+            self.assertEqual(self._f(t + 2, [], self._con("auto", 2))["accion"], "fijo")
+        self.assertEqual(Paso.objects.filter(placa_normalizada="3876LBD").count(), 1)
+        self.assertEqual(Vehiculo.objects.get(placa="3876LBD").saldo, Decimal("246"))  # un solo cobro
+        self.assertEqual(flujo.estado_de(self.caseta)["etapa"], "registrado")
 
-    def test_cobra_a_los_8s_con_datos_completos(self):
-        datos = dict(categoria="camion", ejes=3)
-        self._f(0, [_lectura("2864KPL", 0.9, **datos)], self._con("camion", 3))
-        for t in range(1, 8):
-            self.assertEqual(self._f(t, [_lectura("2864KPL", 0.7, **datos)], self._con("camion", 3))["accion"], "en_curso")
-        r = self._f(8, [_lectura("2864KPL", 0.7, **datos)], self._con("camion", 3))
-        self.assertEqual((r["accion"], r["motivo"], r["paso"].monto), ("registrado", "tiempo", Decimal("10")))
-        # sigue en cuadro: la misma placa ya no se registra otra vez (anti-duplicado 30 s)
-        self.assertEqual(self._f(9, [_lectura("2864KPL", 0.9, **datos)], self._con("camion", 3))["accion"], "duplicado")
-        self.assertEqual(Paso.objects.filter(placa_normalizada="2864KPL").count(), 1)
+    def test_lectura_suelta_de_otra_placa_no_cambia_la_pantalla(self):
+        paso = self._completo(0, "3876LBD")["paso"]
+        r = self._f(2, [_lectura("2451KTP", 0.6)])
+        self.assertEqual((r["accion"], r["paso"].pk, r["candidata"]), ("fijo", paso.pk, "2451KTP"))
 
-    def test_sin_datos_completos_no_cobra_a_los_8s(self):
-        self._f(0, [_lectura("2864KPL", 0.9)], self._con())
-        for t in range(1, 9):
-            self.assertEqual(self._f(t, [_lectura("2864KPL", 0.7)], self._con())["accion"], "en_curso")
+    def test_placa_distinta_inicia_nuevo_paso(self):
+        p1 = self._completo(0, "3876LBD")["paso"]
+        r = self._f(2, [_lectura("2451KTP", 0.9)], self._con())
+        self.assertEqual((r["accion"], r["flujo"]["placa"], r["flujo"]["etapa"]), ("en_curso", "2451KTP", "tipo"))
+        self.assertIsNone(PasoEnCurso.objects.get(caseta=self.caseta).paso)  # la tarjeta se limpia
+        p2 = self._completo(2.5, "2451KTP", "bus", 2)["paso"]
+        self.assertNotEqual(p1.pk, p2.pk)
+        # después de otra placa distinta, la primera vuelve a cobrarse aunque no pasaron 10 min
+        p3 = self._completo(10, "3876LBD")["paso"]
+        self.assertEqual(p3.placa_normalizada, "3876LBD")
+        self.assertEqual(Paso.objects.filter(placa_normalizada="3876LBD").count(), 2)
+
+    def test_sin_tipo_ni_ejes_se_completa_con_respaldos_a_los_6s(self):
+        # No registrada y M2 nunca vio el vehículo: "auto" con 2 ejes estimados.
+        self._f(0, [_lectura("6999ZZZ", 0.9)])
+        self.assertEqual(self._f(5.9, [])["accion"], "en_curso")
+        r = self._f(6, [])
+        self.assertEqual((r["accion"], r["motivo"]), ("registrado", "tiempo"))
+        p = r["paso"]
+        self.assertEqual((p.categoria_detectada, p.ejes_detectados, p.ejes_texto, p.monto, p.estado),
+                         ("auto", None, "2 (estimado)", Decimal("4"), "no_registrada"))
+        self.assertEqual(r["info"]["fuente_categoria"], "respaldo")
+        self.assertEqual(self._f(7, [])["accion"], "fijo")  # una sola vez
+
+    def test_sin_tipo_usa_el_registro_y_luego_la_clase_mas_vista(self):
+        # Registrado (bus) y sin mayoría de tipo: categoría del registro.
+        self._f(0, [_lectura("4471LCH", 0.9, categoria="moto")], self._con("moto"))
+        r = self._f(6, [])
+        self.assertEqual((r["paso"].categoria_detectada, r["info"]["fuente_categoria"], r["paso"].monto),
+                         ("bus", "registro", Decimal("8")))
+        # No registrado: la clase de M2 más vista, aunque no llegó a mayoría.
+        self._f(10, [_lectura("7777XYZ", 0.9, categoria="camion", ejes=3)], self._con("camion", 3))
+        r = self._f(16, [])
+        self.assertEqual((r["paso"].categoria_detectada, r["paso"].ejes_detectados, r["paso"].monto),
+                         ("camion", 3, Decimal("10")))
+
+    def test_misma_placa_vuelve_a_cobrarse_tras_10_min_sin_verla(self):
+        self._completo(0, "3876LBD")
+        self.assertEqual(self._f(9 * 60, [_lectura("3876LBD", 0.9)])["accion"], "fijo")  # visto a los 9 min
+        for t in (12 * 60, 18 * 60):  # sin verla: la pantalla sigue fija
+            self.assertEqual(self._f(t, [])["accion"], "fijo")
+        r = self._f(9 * 60 + 10 * 60 + 1, [_lectura("3876LBD", 0.9, categoria="auto")], self._con("auto"))
+        self.assertEqual((r["accion"], r["flujo"]["placa"]), ("en_curso", "3876LBD"))
+        self.assertEqual(self._f(9 * 60 + 10 * 60 + 8, [])["accion"], "registrado")
+        self.assertEqual(Paso.objects.filter(placa_normalizada="3876LBD").count(), 2)
 
     def test_alertas_no_registrada_y_saldo_insuficiente(self):
-        self._f(0, [_lectura("9999ZZZ", 0.9, categoria="auto")], self._con("auto"))
-        p1 = self._f(3, [])["paso"]
-        self._f(4, [_lectura("1987FHK", 0.9, categoria="auto")], self._con("auto"))
-        p2 = self._f(7, [])["paso"]
+        p1 = self._completo(0, "9999ZZZ")["paso"]
+        p2 = self._completo(2, "1987FHK")["paso"]
         self.assertEqual((p1.estado, p2.estado), ("no_registrada", "saldo_insuficiente"))
         self.assertTrue(Alerta.objects.filter(paso=p1, tipo="placa_no_registrada").exists())
         self.assertTrue(Alerta.objects.filter(paso=p2, tipo="saldo_insuficiente").exists())
 
-    def test_camara_detenida_registra_el_pendiente(self):
+    def test_camara_detenida_completa_el_pendiente(self):
         self._f(0, [_lectura("3876LBD", 0.9)], self._con())
         r = self._f(20, [_lectura("2451KTP", 0.9)], self._con())  # vuelve a encender con otro vehículo
         self.assertEqual((r["accion"], r["paso"].placa_normalizada), ("registrado", "3876LBD"))
@@ -425,7 +470,7 @@ class ApiFrameTests(TestCase):
                          (3, 1, 4, [[1, 2, 3, 4]]))
         self.assertEqual(lec["latencia_modelos_ms"], {"m1": 1, "m2": 2, "m3": 3, "m4": 4})
         d = ultimo.json()
-        self.assertEqual((d["accion"], d["motivo"], d["mensaje"]), ("registrado", "salida", "Tarifa: 10.00 Bs · Cobrado"))
+        self.assertEqual((d["accion"], d["motivo"], d["mensaje"]), ("registrado", "completo", "Tarifa: 10.00 Bs · Cobrado"))
         p = d["paso"]
         self.assertEqual((p["categoria"], p["ejes"], p["pasajeros"], p["tarifa"]), ("camion", 3, 1, "10.00"))
         self.assertEqual(base64.b64decode(d["captura"].split(",", 1)[1]), evidencia)
@@ -450,13 +495,13 @@ class ApiFrameTests(TestCase):
         self.assertEqual((d["accion"], d["flujo"]["placa"], d["flujo"]["placa_bloqueada"], d["flujo"]["etapa"]),
                          ("en_curso", "3876LBD", True, "tipo"))
         self.assertEqual(d["mensaje"], "Placa 3876LBD · detectando tipo")
-        self.assertFalse(Paso.objects.filter(placa_normalizada="3876LBD").exists())  # nada manual: espera la salida
-        PasoEnCurso.objects.filter(caseta=self.caseta).update(ultimo_visto_at=timezone.now() - timedelta(seconds=3))
+        self.assertFalse(Paso.objects.filter(placa_normalizada="3876LBD").exists())  # aún faltan tipo y ejes
+        PasoEnCurso.objects.filter(caseta=self.caseta).update(bloqueada_at=timezone.now() - timedelta(seconds=7))
         d = self._frame([]).json()
         self.assertEqual((d["accion"], d["mensaje"]), ("registrado", "Tarifa: 4.00 Bs · Cobrado"))
         p = d["paso"]
-        self.assertEqual((p["placa"], p["estado"], p["tarifa"], p["categoria"], p["ejes"], p["fuente_categoria"]),
-                         ("3876LBD", "cobrado", "4.00", "auto", 2, "registro"))
+        self.assertEqual((p["placa"], p["estado"], p["tarifa"], p["categoria"], p["ejes"], p["ejes_texto"],
+                          p["fuente_categoria"]), ("3876LBD", "cobrado", "4.00", "auto", None, "2 (estimado)", "registro"))
         self.assertEqual(d["flujo"]["etapa"], "registrado")
 
     def test_una_lectura_confiable_bloquea_al_instante(self):
@@ -465,27 +510,25 @@ class ApiFrameTests(TestCase):
 
     def test_alerta_en_el_mensaje(self):
         d = self._pasar([_lectura("9999ZZZ", 0.9)])[1].json()
-        self.assertEqual(d["mensaje"], "Tarifa: – · No cobrado: placa no registrada")  # sin tipo: sin tarifa
+        self.assertEqual(d["mensaje"], "Tarifa: 4.00 Bs · No cobrado: placa no registrada")  # sin tipo: "auto"
 
-    def test_duplicado_no_cobra_y_dice_hace_cuanto(self):
-        self._pasar([_lectura("3876LBD", 0.9)])
-        p = Paso.objects.get(placa_normalizada="3876LBD", caseta=self.caseta)
-        Paso.objects.filter(pk=p.pk).update(created_at=timezone.now() - timedelta(seconds=25))
-        d = self._frame([_lectura("3876LBD", 0.9)]).json()
-        self.assertEqual((d["accion"], d["segundos_desde_ultimo_paso"], d["mensaje"], d["paso"]["id"]),
-                         ("duplicado", 25, "Ya registrado hace 25 s", p.pk))
-        # una lectura floja de la misma placa también se reconoce como ya registrada
-        LecturaPlaca.objects.all().delete()
-        self.assertEqual(self._frame([_lectura("3876LBD", 0.5)]).json()["accion"], "duplicado")
-        self.assertEqual(Paso.objects.filter(placa_normalizada="3876LBD", caseta=self.caseta,
-                                             usuario=self.admin).count(), 1)
+    def test_misma_placa_queda_fija_y_no_cobra_otra_vez(self):
+        registro = self._pasar([_lectura("3876LBD", 0.9)])[1].json()
+        for _ in range(20):  # muchos frames de la misma placa (y alguno sin placa): mismo resultado, sin otro paso
+            d = self._frame([_lectura("3876LBD", 0.95)]).json()
+            self.assertEqual((d["accion"], d["paso"]["id"], d["mensaje"]),
+                             ("fijo", registro["paso"]["id"], "Tarifa: 4.00 Bs · Cobrado"))
+            self.assertEqual(d["flujo"]["etapa"], "registrado")
+        self.assertEqual(self._frame([]).json()["accion"], "fijo")
+        self.assertEqual(Paso.objects.filter(placa_normalizada="3876LBD", caseta=self.caseta).count(), 1)
         self.assertEqual(Vehiculo.objects.get(placa="3876LBD").saldo, Decimal("246"))
 
-    def test_registra_de_nuevo_pasados_30s(self):
+    def test_misma_placa_se_cobra_otra_vez_tras_10_min_sin_verla(self):
         self._pasar([_lectura("3876LBD", 0.9)])
-        Paso.objects.update(created_at=timezone.now() - timedelta(seconds=31))
+        PasoEnCurso.objects.update(ultimo_visto_at=timezone.now() - timedelta(minutes=10, seconds=1))
         LecturaPlaca.objects.all().delete()
         self.assertEqual(self._pasar([_lectura("3876LBD", 0.9)])[1].json()["accion"], "registrado")
+        self.assertEqual(Paso.objects.filter(placa_normalizada="3876LBD").count(), 2)
 
     def test_cada_frame_queda_en_el_log(self):
         with self.assertLogs("peaje.caseta", level="INFO") as logs:
@@ -511,7 +554,7 @@ class ApiFrameTests(TestCase):
         self._frame([_lectura("3876LBD", 0.7, categoria="camion")])
         d = self._frame([_lectura("3876LBD", 0.75, categoria="camion")]).json()
         self.assertEqual((d["flujo"]["tipo"], d["flujo"]["tipo_listo"]), ("camion", True))
-        PasoEnCurso.objects.filter(caseta=self.caseta).update(ultimo_visto_at=timezone.now() - timedelta(seconds=3))
+        PasoEnCurso.objects.filter(caseta=self.caseta).update(bloqueada_at=timezone.now() - timedelta(seconds=7))
         p = self._frame([]).json()["paso"]
         self.assertEqual((p["categoria"], p["categoria_texto"], p["ejes"], p["tarifa"], p["fuente_categoria"]),
                          ("camion", "Camión", None, "8.00", "inferencia"))
@@ -583,6 +626,10 @@ class ConsultaTests(TestCase):
         r = self.client.get("/caseta")
         self.assertContains(r, "<h1>Punto de cobro</h1>", html=False)
         self.assertContains(r, "Iniciar")
+        self.assertNotContains(r, "Reanudar")  # cámara continua: sin autostop ni reanudar
+        self.assertNotContains(r, "DURACION_S")
+        self.assertContains(r, "INTERVALO = { captura: 500, espera: 1000, fijo: 2000 }")
+        self.assertContains(r, "Peticiones (sesión)")
         self.assertContains(r, 'facingMode = { ideal: "environment" }')
         self.assertContains(r, "aspectRatio: { ideal: 9 / 16 }")   # vertical
         self.assertContains(r, "aspectRatio: { ideal: 16 / 9 }")   # horizontal

@@ -13,9 +13,8 @@
     <canvas id="cajas" class="cajas-video" aria-hidden="true"></canvas>
     <div id="indicacion" class="indicacion">
       {% icono "camara" %}<span id="indicacion-texto">Cámara detenida</span>
-      <button id="btn-reanudar" class="boton primario" type="button" hidden>{% icono "play" %}<span>Reanudar</span></button>
     </div>
-    <div class="video-chip en-vivo">EN VIVO · <span id="restante">60</span> s</div>
+    <div class="video-chip en-vivo">EN VIVO</div>
     <div id="vivo" class="video-chip vivo-chip e-inactivo" aria-live="polite"><span id="vivo-estado">Detenido</span></div>
     <label id="zoom-caja" class="zoom-caja" hidden><span class="visualmente-oculto">Zoom de la cámara</span>
       <input id="zoom" type="range" min="1" max="2" step="0.1" value="1"><span id="zoom-valor" class="num">1.0×</span></label>
@@ -44,7 +43,7 @@
   </div>
 
   <section class="caseta-extra solo-escritorio" aria-label="Diagnóstico">
-    <p class="diagnostico" id="diagnostico">Lectura del frame: <span id="vivo-placa">–</span> · <span id="vivo-tipo">–</span> · Latencia <span id="latencia">–</span> · Frames <span id="contador">0</span> · Placa <span id="conf-placa">–</span> · Tipo <span id="conf-tipo">–</span> · <span id="lat-modelos">–</span><span id="ultimo-error-caja" hidden> · Error: <span id="ultimo-error"></span></span></p>
+    <p class="diagnostico" id="diagnostico">Lectura del frame: <span id="vivo-placa">–</span> · <span id="vivo-tipo">–</span> · Latencia <span id="latencia">–</span> · Peticiones (sesión) <span id="contador">0</span> · <span id="frecuencia">–</span> · Placa <span id="conf-placa">–</span> · Tipo <span id="conf-tipo">–</span> · <span id="lat-modelos">–</span><span id="ultimo-error-caja" hidden> · Error: <span id="ultimo-error"></span></span></p>
   </section>
 </div>
 <canvas id="lienzo" hidden></canvas>
@@ -57,13 +56,28 @@
 (function () {
   // La cámara se pide según la orientación (vertical 9:16, horizontal 16:9) y se vuelve a pedir al girar el
   // celular. El video llena su caja (object-fit: cover) y el frame enviado es exactamente lo que se ve, derecho y
-  // con el lado mayor de hasta 1280 px. El servidor lleva el flujo del vehículo (placa → tipo → ejes → pasajeros)
-  // y cobra solo cuando sale de cuadro o pasan 8 s.
-  var FPS = 2, CALIDAD = 0.8, ANCHO_MAX = 1280, DURACION_S = 60, TIMEOUT_MS = 25000;
+  // con el lado mayor de hasta 1280 px. El servidor lleva el flujo del vehículo (placa → tipo → ejes → pasajeros),
+  // cobra una sola vez (con tipo y ejes, o a los 6 s) y deja el resultado fijo hasta que llegue otra placa.
+  // Frecuencia adaptativa (el túnel gratis tiene un cupo de peticiones al mes): 2 fps capturando un vehículo,
+  // 1 fps en espera y 0.5 fps con un resultado fijo (solo para ver si cambió la placa). Nunca dos a la vez.
+  var INTERVALO = { captura: 500, espera: 1000, fijo: 2000 };
+  var CALIDAD = 0.8, ANCHO_MAX = 1280, TIMEOUT_MS = 25000, CLAVE_PETICIONES = "iap-peticiones-caseta";
   var CASETA_ID = JSON.parse(document.getElementById("caseta-id").textContent);
   var $ = function (id) { return document.getElementById(id); };
+  var ICONO_IMAGEN = document.getElementById("captura").innerHTML;
   var video = $("video"), lienzo = $("lienzo"), cajas = $("cajas"), btn = $("btn");
-  var flujo = null, temporizador = null, reloj = null, enCurso = false, enviadas = 0, inicio = 0;
+  var flujo = null, temporizador = null, enCurso = false, modo = "espera", pasoMostrado = null, enCaptura = false;
+  var enviadas = leerPeticiones();
+
+  // Peticiones de la sesión del navegador (sobrevive a recargar la página; si no hay almacenamiento, desde 0).
+  function leerPeticiones() {
+    try { return parseInt(sessionStorage.getItem(CLAVE_PETICIONES), 10) || 0; } catch (e) { return 0; }
+  }
+  function contarPeticion() {
+    enviadas++;
+    $("contador").textContent = enviadas;
+    try { sessionStorage.setItem(CLAVE_PETICIONES, String(enviadas)); } catch (e) { /* sin almacenamiento */ }
+  }
 
   function aviso(texto) { $("aviso-texto").textContent = texto; $("aviso").hidden = !texto; }
 
@@ -100,7 +114,7 @@
   }
 
   // --- Franja "En vivo" y diagnóstico -----------------------------------------------------------------
-  // tipo: inactivo | buscando | leyendo | registrado | duplicado | error
+  // tipo: inactivo | buscando | leyendo | en_curso | registrado | error
   function estadoVivo(tipo, texto) {
     $("vivo").className = "video-chip vivo-chip e-" + tipo;
     $("vivo-estado").textContent = texto;
@@ -269,7 +283,6 @@
     if (problema) { aviso(problema); return; }
     aviso("");
     btn.disabled = true;
-    $("btn-reanudar").hidden = true;
     orientacion = esVertical();
     abrirCamara(orientacion).then(function (s) {
       flujo = s;
@@ -278,10 +291,8 @@
     }).then(function () {
       $("indicacion").hidden = true;
       $("video-caja").classList.add("grabando");
-      inicio = Date.now();
-      temporizador = setInterval(capturar, 1000 / FPS);
-      reloj = setInterval(tic, 250);
-      tic();
+      fijarModo("espera");
+      programar(0);
       modoBoton(true);
       estadoVivo("buscando", "Buscando placa…");
     }).catch(function (e) {
@@ -290,33 +301,39 @@
     }).then(function () { btn.disabled = false; });
   }
 
-  function detener(motivo, reanudable) {
-    clearInterval(temporizador); clearInterval(reloj); temporizador = reloj = null;
+  // La cámara es continua: solo se detiene con "Detener" o al salir de la página.
+  function detener(motivo) {
+    clearTimeout(temporizador); temporizador = null;
     if (flujo) { flujo.getTracks().forEach(function (t) { t.stop(); }); flujo = null; }
     video.srcObject = null;
     orientacion = null;
     $("zoom-caja").hidden = true;
     $("video-caja").classList.remove("grabando");
     $("indicacion-texto").textContent = motivo || "Cámara detenida";
-    $("btn-reanudar").hidden = !reanudable;
     $("indicacion").hidden = false;
     modoBoton(false);
     limpiarCajas();
     pintarFlujo({});
-    estadoVivo("inactivo", reanudable ? "En pausa" : "Detenido");
+    pasoMostrado = null; enCaptura = false;
+    $("frecuencia").textContent = "–";
+    estadoVivo("inactivo", "Detenido");
   }
 
-  function tic() {
-    var restante = Math.max(0, DURACION_S - Math.floor((Date.now() - inicio) / 1000));
-    $("restante").textContent = restante;
-    if (restante <= 0) {
-      detener("En pausa tras " + DURACION_S + " s", true);
-    }
+  function fijarModo(m) {
+    modo = m;
+    $("frecuencia").textContent = (1000 / INTERVALO[m]).toLocaleString("es-BO") + " fps";
+  }
+
+  // Un solo frame a la vez: el siguiente se programa cuando responde el anterior, según el modo actual.
+  function programar(espera) {
+    clearTimeout(temporizador);
+    if (flujo) temporizador = setTimeout(capturar, Math.max(0, espera));
   }
 
   function capturar() {
     // No se envía si el anterior sigue en curso o si se está cambiando de orientación.
-    if (enCurso || reorientando || !flujo || !video.videoWidth) return;
+    if (enCurso || !flujo) return;
+    if (reorientando || !video.videoWidth) { programar(250); return; }
     // El navegador ya entrega el video girado según el celular: lo que se ve derecho se dibuja derecho.
     var r = encuadre(), escala = Math.min(1, ANCHO_MAX / Math.max(r.w, r.h));
     var ancho = Math.round(r.w * escala), alto = Math.round(r.h * escala);
@@ -324,12 +341,12 @@
     lienzo.getContext("2d").drawImage(video, r.x, r.y, r.w, r.h, 0, 0, ancho, alto);
     enCurso = true;
     lienzo.toBlob(function (blob) {
-      if (!blob || !flujo) { enCurso = false; return; }
+      if (!blob || !flujo) { enCurso = false; programar(INTERVALO[modo]); return; }
       var datos = new FormData();
       datos.append("imagen", blob, "frame.jpg");
       datos.append("caseta_id", CASETA_ID);
       var t0 = performance.now();
-      enviadas++; $("contador").textContent = enviadas;
+      contarPeticion();
       var corte = window.AbortController ? new AbortController() : null;
       var plazo = setTimeout(function () { if (corte) corte.abort(); }, TIMEOUT_MS);
       fetch("/api/v1/pasos/frame", {
@@ -346,7 +363,10 @@
           if (flujo) { estadoVivo("error", texto + ". Reintentando…"); limpiarCajas(); }
           registrarError(texto);
         })
-        .then(function () { clearTimeout(plazo); enCurso = false; });
+        .then(function () {
+          clearTimeout(plazo); enCurso = false;
+          programar(INTERVALO[modo] - (performance.now() - t0));
+        });
     }, "image/jpeg", CALIDAD);
   }
 
@@ -408,7 +428,9 @@
       (p.fuente_categoria === "registro" ? " Tipo tomado del registro del vehículo." : "");
   }
 
-  var enCursoPrevio = false;
+  // Modo de envío según la respuesta: capturando un vehículo (2 fps), resultado fijo (0.5 fps) o espera (1 fps).
+  var MODO = { en_curso: "captura", esperando_confirmacion: "captura", registrado: "fijo", fijo: "fijo",
+               sin_placa: "espera" };
 
   function mostrar(r, d, msCliente, blob, ancho, alto) {
     $("latencia").textContent = msCliente + " ms";
@@ -422,30 +444,44 @@
       estadoVivo("error", texto + ". Reintentando…");
       registrarError(texto);
       limpiarCajas();
+      fijarModo(pasoMostrado ? "fijo" : "espera");
       return;
     }
     mostrarLectura(d.lectura);
     dibujarCajas(d.lectura, ancho, alto);
-    var tipo = { sin_placa: "buscando", esperando_confirmacion: "leyendo", en_curso: "en_curso",
-                 registrado: "registrado", duplicado: "duplicado" }[d.accion] || "buscando";
-    estadoVivo(tipo, d.mensaje);
-    if (d.accion === "registrado" && d.paso) {
-      pintarFlujo(d.flujo);
-      mostrarPaso(d.paso, d.captura, d.mensaje);
-      enCursoPrevio = false;
+    fijarModo(MODO[d.accion] || "espera");
+
+    // Resultado fijo: mientras sea el mismo vehículo (misma placa o ninguna), la tarjeta no cambia.
+    if ((d.accion === "registrado" || d.accion === "fijo") && d.paso) {
+      if (pasoMostrado !== d.paso.id) {
+        pasoMostrado = d.paso.id;
+        pintarFlujo(d.flujo);
+        mostrarPaso(d.paso, d.captura || d.paso.imagen_url, d.mensaje);
+        estadoVivo("registrado", "Resultado fijo · " + d.paso.placa);
+      }
       return;
     }
-    if (d.accion === "en_curso" && !enCursoPrevio) resultado("", "Vehículo en curso…");
-    enCursoPrevio = d.accion === "en_curso";
-    if (d.accion === "duplicado" && d.paso) resultado("", d.mensaje, d.paso.placa);
+    // Placa distinta confirmada: vehículo nuevo, la tarjeta se limpia y arranca el flujo de nuevo.
+    if (pasoMostrado !== null) {
+      pasoMostrado = null;
+      $("captura").innerHTML = ICONO_IMAGEN;
+      $("lectura").textContent = "";
+      resultado("", "Esperando vehículo");
+    }
+    if (d.accion === "en_curso" && !enCaptura) resultado("", "Vehículo en curso…");
+    enCaptura = d.accion === "en_curso";
+    var tipo = { sin_placa: "buscando", esperando_confirmacion: "leyendo", en_curso: "en_curso" }[d.accion] || "buscando";
+    estadoVivo(tipo, d.mensaje);
     pintarFlujo(d.flujo, d.accion === "esperando_confirmacion" && d.lectura ? d.lectura.placa : null);
   }
 
   btn.addEventListener("click", function () { flujo ? detener("Cámara detenida") : iniciar(); });
-  $("btn-reanudar").addEventListener("click", iniciar);
+  // Salir de la página (u ocultarla: el sistema corta la cámara) la detiene; volver requiere "Iniciar".
+  window.addEventListener("pagehide", function () { if (flujo) detener("Cámara detenida"); });
   document.addEventListener("visibilitychange", function () {
-    if (document.hidden && flujo) detener("En pausa", true);
+    if (document.hidden && flujo) detener("Cámara detenida");
   });
+  $("contador").textContent = enviadas;
   window.addEventListener("resize", programarGiro);
   if (window.screen && screen.orientation && screen.orientation.addEventListener) {
     screen.orientation.addEventListener("change", programarGiro);

@@ -182,7 +182,8 @@ class PasoEnCurso(models.Model):
     """Vehículo que está pasando ahora por una caseta (máquina de estados del punto de cobro, una fila por caseta).
 
     La placa se bloquea al confirmarse por votación y no cambia hasta registrar el paso; tipo (M2), ejes (M3) y
-    pasajeros (M4) se acumulan por frame como votos ({valor: cantidad}). Al registrar se reinicia la fila.
+    pasajeros (M4) se acumulan por frame como votos ({valor: cantidad}). Al registrar se limpia la captura y el paso
+    queda en `paso` como resultado fijo hasta que se confirme una placa distinta (ver flujo.py).
     """
 
     caseta = models.OneToOneField(Caseta, on_delete=models.CASCADE, primary_key=True, related_name="en_curso")
@@ -199,6 +200,8 @@ class PasoEnCurso(models.Model):
     votos_pasajeros = models.JSONField(default=dict, blank=True)
     evidencia = models.BinaryField(null=True, blank=True)  # mejor frame de la placa (personas cubiertas)
     evidencia_confianza = models.FloatField(null=True, blank=True)
+    # Resultado fijo en pantalla: el último paso registrado (placa en blanco = no hay vehículo en captura).
+    paso = models.ForeignKey(Paso, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
 
     class Meta:
         db_table = "pasos_en_curso"

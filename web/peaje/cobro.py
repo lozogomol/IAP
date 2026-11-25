@@ -18,17 +18,18 @@ CERO = Decimal("0")
 
 # --- Votación entre frames ----------------------------------------------------------------------
 
-def votar(caseta, ahora=None, desde=None):
+def votar(caseta, ahora=None, desde=None, excluir=None):
     """Placa ganadora entre las lecturas de la caseta de los últimos 4 s, o None si aún no hay consenso.
 
     Gana la más repetida; vale si tiene >= 2 lecturas o alguna lectura con confianza >= 0.80. `desde`: ignora las
-    lecturas anteriores (las del vehículo que ya se registró).
+    lecturas anteriores (las del vehículo que ya se registró); `excluir`: placa que no participa (la del resultado
+    fijo en pantalla).
     Devuelve {"placa", "votos", "confianza", "categoria", "ejes", "pasajeros"}.
     """
     ahora = ahora or timezone.now()
     inicio = ahora - VENTANA_VOTO if desde is None else max(ahora - VENTANA_VOTO, desde)
     grupos = defaultdict(list)
-    for l in LecturaPlaca.objects.filter(caseta=caseta, created_at__gte=inicio):
+    for l in LecturaPlaca.objects.filter(caseta=caseta, created_at__gte=inicio).exclude(placa=excluir or ""):
         grupos[l.placa].append(l)
     if not grupos:
         return None
@@ -108,23 +109,25 @@ def paso_reciente(caseta, placa, ahora=None):
 
 
 def registrar_paso(caseta_id, placa, usuario=None, confianza=None, texto_leido=None, categoria="", ejes=None,
-                   pasajeros=None, ahora=None):
+                   pasajeros=None, ahora=None, antiduplicado=True, fuente_categoria=None):
     """Registra el paso y cobra. Devuelve (paso, duplicado, info).
 
     Tarifa = categoría detectada (M2) + ejes detectados (M3, mínimo 2; sin dato = 2 estimados); ver tarifa_de.
-    Si no se detectó categoría, la del vehículo registrado. El monto del paso es SIEMPRE la tarifa calculada,
+    Si no se detectó categoría, la del vehículo registrado. `antiduplicado`: no registra la misma placa dos veces en
+    30 s (el punto de cobro lo desactiva: allí manda la regla de flujo.py). `fuente_categoria`: de dónde salió la
+    categoría que se pasa (inferencia | registro | respaldo). El monto del paso es SIEMPRE la tarifa calculada,
     se haya cobrado o no; el estado dice si se cobró: "cobrado" (descuenta saldo), "saldo_insuficiente" o
     "no_registrada" (con su alerta). Solo si no hay ninguna categoría (ni detectada ni registrada) no hay tarifa
     y el monto queda en 0. Los ejes y pasajeros que no se detectaron quedan en null: nunca se inventan.
     """
     with transaction.atomic():
         caseta = Caseta.objects.select_for_update().get(pk=caseta_id)  # serializa los pasos de la caseta
-        previo = paso_reciente(caseta, placa, ahora)
+        previo = paso_reciente(caseta, placa, ahora) if antiduplicado else None
         if previo:
             return previo, True, {"fuente_categoria": None}
 
         vehiculo = Vehiculo.objects.select_for_update().filter(placa=placa).first()
-        fuente = "inferencia"
+        fuente = fuente_categoria or "inferencia"
         tarifa = tarifa_de(categoria, ejes)
         if tarifa is None:
             if vehiculo:

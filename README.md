@@ -31,11 +31,16 @@ categoría, la del vehículo registrado). Cada paso guarda categoría, ejes y pa
 como captura, la evidencia con las personas cubiertas por su máscara. Métricas de M2 en `docs/metricas/m2/`.
 
 ## Modo caseta (cámara del celular)
-`/caseta` usa la cámara trasera y envía 2 frames/s (1280 px, JPEG 0.8) a `POST /api/v1/pasos/frame`; se pausa sola
-a los 60 s y muestra un botón «Reanudar». Cada frame devuelve su resultado (`accion`: `registrado`,
-`esperando_confirmacion`, `duplicado`, `sin_placa` o `error`, con `mensaje` y `lectura`), que se ve en la franja
-«En vivo» con las cajas de la placa y del vehículo dibujadas sobre el video. Registra con 2 lecturas iguales en 4 s
-o 1 lectura con confianza ≥ 0.80; la misma placa en la misma caseta no se cobra dos veces en 30 s. Cada frame queda
+`/caseta` usa la cámara trasera (vertical 9:16 u horizontal 16:9, se adapta al girar) y envía frames JPEG 0.8 de
+hasta 1280 px a `POST /api/v1/pasos/frame`. La cámara es continua: solo se detiene con «Detener» o al salir de la
+página. **Un vehículo = un cobro**: la placa se confirma con 2 lecturas iguales en 4 s o 1 con confianza ≥ 0.80 y se
+bloquea; con tipo (M2) y ejes (M3) por mayoría, o a los 6 s con respaldos (tipo del registro, clase M2 más vista o
+«auto»; 2 ejes estimados), se registra y cobra una sola vez. El resultado queda fijo (`accion: fijo`) mientras se vea
+la misma placa o ninguna; solo una placa distinta confirmada inicia otro vehículo, y la misma placa vuelve a cobrarse
+tras otra placa distinta o 10 min sin verla. Frecuencia adaptativa para ahorrar peticiones: 2 fps capturando un
+vehículo, 1 fps en espera y 0.5 fps con resultado fijo, nunca dos frames a la vez; el diagnóstico muestra las
+peticiones de la sesión. Cada frame devuelve `accion` (`sin_placa`, `esperando_confirmacion`, `en_curso`,
+`registrado`, `fijo` o `error`), `mensaje`, `flujo` y `lectura`, con las cajas dibujadas sobre el video. Cada frame queda
 en el log del servidor (`peaje.caseta`, nivel con `IAP_LOG_NIVEL`).
 La cámara del navegador exige **HTTPS** (Render, o un túnel ngrok hacia el servidor local).
 

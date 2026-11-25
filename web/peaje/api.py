@@ -4,7 +4,6 @@ import logging
 import time
 
 from django.conf import settings
-from django.utils import timezone
 from drf_spectacular.utils import OpenApiParameter, extend_schema, inline_serializer
 from rest_framework import serializers, status
 from rest_framework.decorators import api_view, parser_classes
@@ -38,17 +37,18 @@ def _ms(t0):
 @extend_schema(
     summary="Procesa un frame de la cámara de una caseta",
     description=(
-        "Un vehículo = un paso. Cada frame alimenta la máquina de estados de la caseta: (a) PLACA por votación "
-        "(2 lecturas iguales en 4 s o 1 con confianza >= 0.80) que queda bloqueada durante el paso; (b) TIPO por "
-        "mayoría sobre el vehículo de esa placa; (c) EJES por mayoría (mínimo 2); (d) PASAJEROS: máximo conteo "
-        "estable. (e) El paso se registra y cobra SOLO cuando el vehículo sale de cuadro (2 s sin verlo) o a los 8 s "
-        "del bloqueo con placa + tipo + ejes (a los 15 s siempre). Anti-duplicado: la misma placa en la misma caseta "
-        "no se registra otra vez en 30 s. "
-        "Respuesta: `accion` `sin_placa` | `esperando_confirmacion` | `en_curso` | `registrado` | `duplicado` | "
+        "Un vehículo = un cobro. Cada frame alimenta la máquina de estados de la caseta: (a) PLACA por votación "
+        "(2 lecturas iguales en 4 s o 1 con confianza >= 0.80) que queda bloqueada; (b) TIPO por mayoría sobre el "
+        "vehículo de esa placa; (c) EJES por mayoría; (d) PASAJEROS: máximo conteo estable. (e) Con tipo y ejes, o "
+        "a los 6 s del bloqueo (con respaldos: tipo del registro, clase más vista o 'auto'; 2 ejes estimados), se "
+        "registra y cobra una sola vez. (f) El resultado queda FIJO (`accion: fijo`) mientras se vea la misma placa "
+        "o ninguna; solo una placa distinta confirmada inicia otro vehículo. La misma placa vuelve a cobrarse tras "
+        "otra placa distinta o 10 min sin verla. "
+        "Respuesta: `accion` `sin_placa` | `esperando_confirmacion` | `en_curso` | `registrado` | `fijo` | "
         "`error`; `flujo` {etapa, placa, placa_bloqueada, tipo, tipo_texto, tipo_listo, ejes, ejes_listo, pasajeros, "
         "pasajeros_listo, segundos}; `lectura` (resultado de ESTE frame: placa, confianza, categoria, ejes, "
-        "pasajeros, cajas [x1, y1, x2, y2] en píxeles del frame enviado, latencias); `paso` (si se registró o es "
-        "duplicado), `mensaje` (texto corto en español), `captura` (evidencia del paso registrado). Si la "
+        "pasajeros, cajas [x1, y1, x2, y2] en píxeles del frame enviado, latencias); `paso` (si se registró o es el "
+        "fijo), `mensaje` (texto corto en español), `captura` (evidencia del paso registrado). Si la "
         "inferencia falla responde 502 con `accion: error`."
     ),
     request=inline_serializer("FrameEntrada", fields={
@@ -115,13 +115,15 @@ def paso_frame(request):
         return responder("esperando_confirmacion",
                          f"Leyendo {mejor['placa']} (confirmando {r['votos']}/{cobro.MIN_VOTOS})", lectura,
                          flujo=estado_flujo, votos=r["votos"], votos_necesarios=cobro.MIN_VOTOS)
-    if accion == "duplicado":
-        return _duplicado(responder, r["paso"], lectura, estado_flujo)
+    if accion == "fijo":
+        # Mismo vehículo (o ninguno): no se recalcula nada; se repite el resultado fijo.
+        return responder("fijo", _mensaje_cobro(r["paso"]), lectura, flujo=estado_flujo,
+                         paso=cobro.paso_a_dict(r["paso"]), candidata=r.get("candidata"))
     if accion == "en_curso":
         return responder("en_curso", MENSAJE_ETAPA[estado_flujo["etapa"]].format(**estado_flujo), lectura,
                          flujo=estado_flujo)
 
-    # registrado: el vehículo salió de cuadro o se cumplió el tiempo; el paso se cobró solo.
+    # registrado: ya hay tipo y ejes o se cumplieron los 6 s; el paso se cobró solo (una vez).
     paso, evidencia = r["paso"], r["evidencia"]
     panel.publicar_paso(paso, evidencia)  # captura + evento en tiempo real
     return responder("registrado", _mensaje_cobro(paso), lectura, flujo=estado_flujo,
@@ -133,8 +135,7 @@ MENSAJE_ETAPA = {
     "placa": "Buscando placa…",
     "tipo": "Placa {placa} · detectando tipo",
     "ejes": "Placa {placa} · contando ejes",
-    "pasajeros": "Placa {placa} · contando pasajeros",
-    "cobro": "Placa {placa} · esperando salida para cobrar",
+    "cobro": "Placa {placa} · registrando cobro",
 }
 
 
@@ -142,12 +143,6 @@ def _mensaje_cobro(paso):
     """"Tarifa: X Bs · <resultado>" (la tarifa se muestra siempre, se haya cobrado o no)."""
     tarifa = f"Tarifa: {paso.tarifa:.2f} Bs" if paso.tarifa is not None else "Tarifa: –"
     return f"{tarifa} · {paso.resultado_texto}"
-
-
-def _duplicado(responder, paso, lectura, estado_flujo=None):
-    segundos = max(0, round((timezone.now() - paso.created_at).total_seconds()))
-    return responder("duplicado", f"Ya registrado hace {segundos} s", lectura, flujo=estado_flujo,
-                     paso=cobro.paso_a_dict(paso), segundos_desde_ultimo_paso=segundos)
 
 
 @extend_schema(

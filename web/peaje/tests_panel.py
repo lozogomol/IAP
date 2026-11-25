@@ -168,11 +168,11 @@ class FrameCapturaTiempoRealTests(MediaTemporal):
         self.assertContains(r, '<td data-label="Categoría detectada">Bus</td>', html=False)
 
     @override_settings(**PUSHER)
-    def test_duplicado_no_emite(self):
+    def test_resultado_fijo_no_emite(self):
         self._frame("3876LBD")
         with mock.patch.object(tiempo_real, "en_segundo_plano") as fondo,                 mock.patch(INFERIR, return_value=([_lectura("3876LBD", 0.95)], 50, {})):
             r = self.client.post("/api/v1/pasos/frame", {"imagen": _jpeg(), "caseta_id": self.caseta.id})
-        self.assertEqual(r.json()["accion"], "duplicado")
+        self.assertEqual(r.json()["accion"], "fijo")
         fondo.assert_not_called()
 
     @override_settings(CLOUDINARY_URL="cloudinary://k123:s456@minube")

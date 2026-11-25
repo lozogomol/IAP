@@ -88,19 +88,50 @@ main.contenedor { padding-top: var(--e-4); padding-bottom: var(--e-6); }
   .grilla-consulta { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; }
 }
 
+/* 4. Galaxia animada: solo lo principal (barra, tarjetas KPI, login y botones principales) ----------- */
+/* Lo secundario (otras tarjetas, botones, etiquetas, avisos) es plano: fondo blanco y borde de color. */
+.galaxia, .boton.primario { position: relative; isolation: isolate; overflow: hidden; color: #fff; background: var(--n-1); }
+.galaxia::before, .galaxia::after, .boton.primario::before, .boton.primario::after { content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none; }
+/* Nebulosa: se desplaza muy lento */
+.galaxia::before, .boton.primario::before {
+  background:
+    radial-gradient(ellipse 45% 70% at 20% 30%, rgba(43, 79, 216, .35), transparent 70%),
+    radial-gradient(ellipse 40% 80% at 75% 70%, rgba(157, 180, 255, .16), transparent 70%),
+    radial-gradient(ellipse 60% 90% at 50% 120%, rgba(16, 30, 69, .9), transparent 70%),
+    linear-gradient(135deg, var(--n-0) 0%, var(--n-1) 35%, var(--n-2) 70%, var(--n-3) 100%);
+  background-size: 200% 200%, 220% 220%, 100% 100%, 100% 100%;
+  animation: nebulosa 60s ease-in-out infinite alternate;
+}
+/* Estrellas: dos capas que titilan desfasadas (la segunda es .estrellas, dentro del elemento) */
+.galaxia::after, .boton.primario::after {
+  background-image:
+    radial-gradient(1px 1px at 18px 26px, #fff, transparent), radial-gradient(1px 1px at 92px 118px, #fff, transparent),
+    radial-gradient(1.4px 1.4px at 146px 44px, #fff, transparent), radial-gradient(1px 1px at 201px 150px, #fff, transparent),
+    radial-gradient(1px 1px at 57px 171px, #fff, transparent), radial-gradient(1.2px 1.2px at 263px 81px, #fff, transparent);
+  background-size: 300px 200px;
+  animation: titilar 4s ease-in-out infinite alternate;
+}
+.estrellas { position: absolute; inset: 0; z-index: -1; pointer-events: none; overflow: hidden;
+             background-image:
+               radial-gradient(1px 1px at 41px 63px, rgba(255, 255, 255, .9), transparent),
+               radial-gradient(1px 1px at 131px 12px, rgba(255, 255, 255, .8), transparent),
+               radial-gradient(1.2px 1.2px at 231px 140px, #fff, transparent),
+               radial-gradient(1px 1px at 311px 93px, rgba(255, 255, 255, .7), transparent);
+             background-size: 360px 180px; animation: titilar 5.5s ease-in-out 1.5s infinite alternate-reverse; }
+.galaxia :focus-visible { outline-color: #fff; }
+
 /* 5. Barra superior ---------------------------------------------------------------------------------- */
-.barra-sup { position: sticky; top: 0; z-index: 40; height: var(--alto-barra); overflow: visible; background: #fff;
-             color: var(--n-2); border-bottom: 3px solid var(--n-2); }
+.barra-sup { position: sticky; top: 0; z-index: 40; height: var(--alto-barra); overflow: visible; }
 .barra { display: flex; align-items: center; gap: var(--e-2); height: 100%; max-width: var(--ancho-max); margin: 0 auto;
          padding: 0 var(--e-3); }
-.marca { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; margin-right: auto; color: var(--n-2); font-weight: 700;
+.marca { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; margin-right: auto; color: #fff; font-weight: 700;
          font-size: 1.0625rem; white-space: nowrap; }
-.marca:hover { color: var(--n-2); text-decoration: none; }
-.marca .ico-marca { width: 30px; height: 30px; color: var(--n-2); }
+.marca:hover { color: #fff; text-decoration: none; }
+.marca .ico-marca { width: 30px; height: 30px; color: #fff; }
 .boton-barra { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; width: 40px; height: 40px;
-               padding: 0; background: #fff; color: var(--n-2); border: 1px solid var(--n-2); cursor: pointer;
+               padding: 0; background: transparent; color: #fff; border: 1px solid rgba(255, 255, 255, .35); cursor: pointer;
                transition: background-color var(--transicion), border-color var(--transicion); }
-.boton-barra:hover, .boton-barra[aria-expanded="true"] { color: var(--c-acento); border-color: var(--c-acento); }
+.boton-barra:hover, .boton-barra[aria-expanded="true"] { background: rgba(255, 255, 255, .12); border-color: #fff; }
 .boton-barra .ico { width: 20px; height: 20px; }
 .menu-btn .ico-cerrar, .abierto .menu-btn .ico-menu { display: none; }
 .abierto .menu-btn .ico-cerrar { display: block; }
@@ -137,15 +168,15 @@ main.contenedor { padding-top: var(--e-4); padding-bottom: var(--e-6); }
   .menu-btn { display: none; }
   .navegacion { display: flex; position: static; flex: 1 1 auto; min-width: 0; max-height: none; overflow: visible;
                 background: none; color: inherit; border: 0; box-shadow: none; animation: none; }
-  .navegacion :focus-visible { outline-color: var(--c-acento); }
+  .navegacion :focus-visible { outline-color: #fff; }
   .menu { flex-direction: row; flex: 1 1 auto; min-width: 0; padding: 0; gap: 2px; }
-  .menu a { min-height: var(--alto-barra); padding: 0 11px; font-size: var(--t-sm); font-weight: 400; color: var(--c-texto); }
+  .menu a { min-height: var(--alto-barra); padding: 0 11px; font-size: var(--t-sm); font-weight: 400; color: #fff; }
   .menu a .ico { display: none; }
-  .menu a::after { content: ""; position: absolute; left: 11px; right: 11px; bottom: 0; height: 2px; background: var(--n-2);
+  .menu a::after { content: ""; position: absolute; left: 11px; right: 11px; bottom: 0; height: 2px; background: #fff;
                    transform: scaleX(0); transition: transform var(--transicion); }
-  .menu a:hover { background: none; color: var(--n-2); text-decoration: none; }
+  .menu a:hover { background: none; color: #fff; text-decoration: none; }
   .menu a:hover::after { transform: scaleX(.4); }
-  .menu a.activo { background: none; box-shadow: none; color: var(--n-2); font-weight: 700; }
+  .menu a.activo { background: none; box-shadow: none; color: #fff; font-weight: 700; }
   .menu a.activo::after { transform: scaleX(1); }
 }
 
@@ -163,12 +194,14 @@ main.contenedor { padding-top: var(--e-4); padding-bottom: var(--e-6); }
   transition: background-color var(--transicion), border-color var(--transicion), color var(--transicion);
 }
 .boton:hover { color: var(--c-acento); border-color: var(--c-acento); text-decoration: none; }
-.boton.primario { border-width: 2px; border-color: var(--n-2); color: var(--n-2); }
-.boton.primario:hover { border-color: var(--c-acento); color: var(--c-acento); }
+.boton.primario { border-color: var(--n-2); color: #fff; }  /* fondo: galaxia (sección 4) */
+.boton.primario:hover { border-color: var(--c-apoyo); color: #fff; }
 .boton.peligro { border-width: 2px; border-color: var(--c-peligro); color: var(--c-peligro-texto); }
 .boton.peligro:hover { border-color: var(--c-peligro-texto); color: var(--c-peligro-texto); }
 .boton.claro { color: var(--n-2); border-color: var(--n-2); }
 .boton.claro:hover { color: var(--c-acento); border-color: var(--c-acento); }
+.galaxia .boton.claro { color: #fff; border-color: rgba(255, 255, 255, .5); background: transparent; }  /* sobre la barra */
+.galaxia .boton.claro:hover { color: #fff; border-color: #fff; }
 .boton.chico { font-size: var(--t-xs); padding: 0 12px; }
 .boton.chico .ico { width: 16px; height: 16px; }
 .boton.grande { min-height: 56px; padding: 0 var(--e-4); font-size: var(--t-base); }
@@ -209,22 +242,21 @@ input:focus, select:focus, textarea:focus { outline: 0; border-color: var(--c-ac
 .tarjeta-cab h2 { font-size: var(--t-xs); font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--c-texto); }
 @media (min-width: 768px) { .tarjeta { padding: var(--e-4); } }
 .kpi { display: flex; flex-direction: column; justify-content: space-between; gap: var(--e-4); min-height: 140px;
-       padding: var(--e-4); background: #fff; border: 1px solid var(--c-borde); border-left: 3px solid var(--n-2);
-       color: var(--c-texto); }
-a.kpi { transition: border-color var(--transicion); }
-a.kpi:hover { color: var(--c-texto); text-decoration: none; border-color: var(--c-acento); }
+       padding: var(--e-4); border: 0; border-left: 3px solid #fff; box-shadow: var(--sombra); color: #fff; }
+a.kpi { transition: box-shadow var(--transicion); }
+a.kpi:hover { color: #fff; text-decoration: none; box-shadow: var(--sombra-alta); }
 .kpi-cab { display: flex; align-items: center; justify-content: space-between; gap: var(--e-2); }
-.kpi-etiqueta { font-size: var(--t-xs); font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--c-tenue); }
-.kpi-cab .ico { width: 20px; height: 20px; color: var(--n-2); }
-.kpi-valor { font-size: 2.75rem; font-weight: 300; line-height: 1; letter-spacing: -.03em; color: var(--n-2); font-variant-numeric: tabular-nums; }
+.kpi-etiqueta { font-size: var(--t-xs); font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: #fff; }
+.kpi-cab .ico { width: 20px; height: 20px; color: #fff; }
+.kpi-valor { font-size: 2.75rem; font-weight: 300; line-height: 1; letter-spacing: -.03em; color: #fff; font-variant-numeric: tabular-nums; }
 .kpi-valor small { font-size: .4em; font-weight: 600; margin-right: 6px; vertical-align: .55em; }
-.kpi-desglose { margin-top: -8px; font-size: var(--t-xs); color: var(--c-tenue); font-variant-numeric: tabular-nums; }
-.kpi-desglose b { font-weight: 600; color: var(--c-texto); }
+.kpi-desglose { margin-top: -8px; font-size: var(--t-xs); color: rgba(255, 255, 255, .75); font-variant-numeric: tabular-nums; }
+.kpi-desglose b { font-weight: 600; color: #fff; }
 .kpi-tipos { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; font-size: var(--t-sm); }
 .kpi-tipos li { display: grid; grid-template-columns: 64px minmax(0, 1fr) 28px; align-items: center; gap: var(--e-2); font-weight: 400; }
 .kpi-tipos b { font-weight: 700; text-align: right; font-variant-numeric: tabular-nums; }
-.kpi-tipos .barrita { height: 4px; background: var(--c-borde); }
-.kpi-tipos .barrita i { display: block; height: 100%; background: var(--n-2); transition: width 400ms ease; }
+.kpi-tipos .barrita { height: 4px; background: rgba(255, 255, 255, .18); }
+.kpi-tipos .barrita i { display: block; height: 100%; background: #fff; transition: width 400ms ease; }
 
 /* 10. Tablas: tarjetas en celular, tabla desde 768px ------------------------------------------------- */
 .tabla { width: 100%; border-collapse: collapse; font-size: var(--t-sm); }
@@ -525,11 +557,13 @@ dialog[open] { animation: entrar 150ms ease-out; }
 .acceso { width: 100%; max-width: 400px; overflow: hidden; background: #fff; border: 1px solid var(--c-borde); box-shadow: var(--sombra-alta); text-align: center; }
 .acceso-cab { padding: var(--e-5) var(--e-4); }
 .acceso-cab .ico-marca { width: 52px; height: 52px; margin: 0 auto var(--e-3); color: var(--c-texto); }
+.acceso-cab.galaxia .ico-marca { color: #fff; }
 .acceso-cab h1 { font-size: var(--t-lg); }
 .acceso-cab p { margin-top: 6px; font-size: var(--t-sm); color: var(--c-tenue); }
-.acceso-cab { border-top: 3px solid var(--n-2); }
+.acceso-cab.galaxia p { color: #fff; font-weight: 400; }
+.acceso-cab:not(.galaxia) { border-top: 3px solid var(--n-2); }
 .acceso-cuerpo { padding: var(--e-5) var(--e-4); }
-.acceso-cab + .acceso-cuerpo { padding-top: 0; }
+.acceso-cab:not(.galaxia) + .acceso-cuerpo { padding-top: 0; }
 .acceso .pila { display: grid; gap: 12px; margin-top: var(--e-4); }
 .google-btn { display: flex; justify-content: center; min-height: 44px; }
 .cuenta { display: inline-block; margin-top: 12px; padding: 4px 12px; background: var(--c-suave); border: 1px solid var(--c-borde);
@@ -537,6 +571,8 @@ dialog[open] { animation: entrar 150ms ease-out; }
 .mensaje-login { min-height: 1.5em; margin-top: 12px; font-size: var(--t-sm); color: var(--c-peligro-texto); }
 
 /* 22. Animaciones y movimiento reducido -------------------------------------------------------------- */
+@keyframes nebulosa { 0% { background-position: 0% 0%, 100% 100%, 0 0, 0 0; } 100% { background-position: 100% 60%, 0% 30%, 0 0, 0 0; } }
+@keyframes titilar { 0% { opacity: .35; } 100% { opacity: 1; } }
 @keyframes entrar { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
 @keyframes desplegar { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }
 @keyframes latido { 0% { box-shadow: 0 0 0 0 rgba(22, 163, 74, .45); } 70% { box-shadow: 0 0 0 8px rgba(22, 163, 74, 0); }

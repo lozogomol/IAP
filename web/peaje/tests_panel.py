@@ -377,21 +377,25 @@ class DisenoTests(TestCase):
                 self.assertRegex(valor.strip(), r"^0(px)?\s*(!important)?$", f"esquina redondeada en {archivo.name}")
         self.assertIn("cornerRadius: 0", (Path(__file__).parent / "templates" / "peaje" / "panel.html").read_text(encoding="utf-8"))
 
-    def test_diseno_plano_fondo_blanco_y_bordes_de_color(self):
-        """Sin degradados, sin sombras, sin galaxia: fondo blanco; el color va en bordes y textos."""
+    def test_galaxia_en_lo_principal_y_lo_secundario_plano(self):
+        """Galaxia animada solo en barra, tarjetas KPI, login y botones principales; lo demás: fondo blanco y borde."""
+        import re
         from django.conf import settings
         css = self._css()
-        for prohibido in ("gradient", "@keyframes nebulosa", "@keyframes titilar", ".galaxia", ".estrellas"):
-            self.assertNotIn(prohibido, css)
-        self.assertIn("--sombra: none", css)
-        self.assertIn("--sombra-alta: none", css)
-        self.assertIn("prefers-reduced-motion", css)
+        for animacion in ("@keyframes nebulosa", "@keyframes titilar", "prefers-reduced-motion"):
+            self.assertIn(animacion, css)
+        self.assertIn(".galaxia, .boton.primario { position: relative;", css)
+        permitidos = {"base.html", "login.html", "panel.html"}
         for archivo in (Path(settings.BASE_DIR) / "peaje" / "templates").rglob("*.html"):
-            texto = archivo.read_text(encoding="utf-8")
-            self.assertNotIn("galaxia", texto, archivo.name)
-            self.assertNotIn("estrellas", texto, archivo.name)
-        # botones sin relleno: fondo blanco y borde de color
-        self.assertIn(".boton.primario { border-width: 2px; border-color: var(--n-2); color: var(--n-2); }", css)
+            if "galaxia" in archivo.read_text(encoding="utf-8"):
+                self.assertIn(archivo.name, permitidos)
+        # los degradados solo están en la sección de la galaxia
+        seccion = css[css.index("/* 4. Galaxia animada"):css.index("/* 5. Barra superior")]
+        self.assertNotIn("gradient", css.replace(seccion, ""))
+        # secundario plano: sin sombras y botones sin relleno al pasar el mouse
+        self.assertIn("--sombra: none", css)
+        self.assertIsNone(re.search(r"\.boton:hover \{[^}]*background", css))
+        self.assertIn(".boton.peligro { border-width: 2px; border-color: var(--c-peligro);", css)
 
     def test_titulos_de_secciones(self):
         entrar(self.client, Usuario.objects.get(email_google="lozogomol@gmail.com"))

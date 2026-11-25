@@ -207,6 +207,7 @@ def paso_a_dict(paso, info=None):
         "estado_texto": paso.get_estado_display(),
         "cobrado": paso.cobrado,
         "pendiente": paso.pendiente,
+        "registrada": paso.registrada,
         "forma_pago": paso.forma_pago,
         "forma_pago_texto": paso.get_forma_pago_display() or None,
         "motivo_pendiente": paso.motivo_pendiente if paso.pendiente else "",

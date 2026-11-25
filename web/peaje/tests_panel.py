@@ -95,7 +95,7 @@ class PanelTests(MediaTemporal):
         self.assertEqual(set(d["pasos"][0]),
                          {"id", "placa", "estado", "estado_texto", "categoria", "categoria_texto", "ejes", "pasajeros",
                           "monto", "hora", "fecha", "imagen_url", "ejes_texto", "tarifa", "cobrado", "resultado_texto",
-                          "forma_pago", "motivo_pendiente"})
+                          "forma_pago", "motivo_pendiente", "registrada"})
 
     def test_sin_pusher_no_carga_pusher_js(self):
         entrar(self.client, self.oper)
@@ -377,15 +377,21 @@ class DisenoTests(TestCase):
                 self.assertRegex(valor.strip(), r"^0(px)?\s*(!important)?$", f"esquina redondeada en {archivo.name}")
         self.assertIn("cornerRadius: 0", (Path(__file__).parent / "templates" / "peaje" / "panel.html").read_text(encoding="utf-8"))
 
-    def test_galaxia_animada_solo_en_barra_login_y_kpi(self):
+    def test_diseno_plano_fondo_blanco_y_bordes_de_color(self):
+        """Sin degradados, sin sombras, sin galaxia: fondo blanco; el color va en bordes y textos."""
         from django.conf import settings
         css = self._css()
-        for animacion in ("@keyframes nebulosa", "@keyframes titilar", "prefers-reduced-motion"):
-            self.assertIn(animacion, css)
-        permitidos = {"base.html", "login.html", "panel.html"}
+        for prohibido in ("gradient", "@keyframes nebulosa", "@keyframes titilar", ".galaxia", ".estrellas"):
+            self.assertNotIn(prohibido, css)
+        self.assertIn("--sombra: none", css)
+        self.assertIn("--sombra-alta: none", css)
+        self.assertIn("prefers-reduced-motion", css)
         for archivo in (Path(settings.BASE_DIR) / "peaje" / "templates").rglob("*.html"):
-            if "galaxia" in archivo.read_text(encoding="utf-8"):
-                self.assertIn(archivo.name, permitidos)
+            texto = archivo.read_text(encoding="utf-8")
+            self.assertNotIn("galaxia", texto, archivo.name)
+            self.assertNotIn("estrellas", texto, archivo.name)
+        # botones sin relleno: fondo blanco y borde de color
+        self.assertIn(".boton.primario { border-width: 2px; border-color: var(--n-2); color: var(--n-2); }", css)
 
     def test_titulos_de_secciones(self):
         entrar(self.client, Usuario.objects.get(email_google="lozogomol@gmail.com"))

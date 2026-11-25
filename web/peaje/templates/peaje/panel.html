@@ -7,20 +7,20 @@
 {% block contenido %}
 
 <section class="grilla grilla-kpi separado" aria-label="Datos generales de hoy">
-  <div class="galaxia kpi"><span class="estrellas" aria-hidden="true"></span>
+  <div class="kpi">
     <div class="kpi-cab"><span class="kpi-etiqueta">Pasos de hoy</span>{% icono "auto" %}</div>
     <span class="kpi-valor" id="k-pasos">{{ datos.kpis.pasos_hoy }}</span>
   </div>
-  <div class="galaxia kpi"><span class="estrellas" aria-hidden="true"></span>
+  <div class="kpi">
     <div class="kpi-cab"><span class="kpi-etiqueta">Recaudación de hoy</span>{% icono "billetera" %}</div>
     <span class="kpi-valor"><small>Bs</small><span id="k-recaudacion">{{ datos.kpis.recaudacion_hoy }}</span></span>
     <span class="kpi-desglose">Saldo <b id="k-saldo">{{ datos.kpis.recaudacion_saldo }}</b> · Efectivo <b id="k-efectivo">{{ datos.kpis.recaudacion_efectivo }}</b> Bs</span>
   </div>
-  <a class="galaxia kpi" href="/alertas"><span class="estrellas" aria-hidden="true"></span>
+  <a class="kpi" href="/alertas">
     <div class="kpi-cab"><span class="kpi-etiqueta">Alertas sin atender</span>{% icono "campana" %}</div>
     <span class="kpi-valor" id="k-alertas">{{ datos.kpis.alertas_pendientes }}</span>
   </a>
-  <div class="galaxia kpi"><span class="estrellas" aria-hidden="true"></span>
+  <div class="kpi">
     <div class="kpi-cab"><span class="kpi-etiqueta">Vehículos por tipo</span>{% icono "lista" %}</div>
     <ul class="kpi-tipos" id="k-tipos" aria-label="Vehículos de hoy por tipo"></ul>
   </div>

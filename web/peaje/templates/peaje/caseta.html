@@ -15,7 +15,6 @@
       {% icono "camara" %}<span id="indicacion-texto">Cámara detenida</span>
     </div>
     <div class="video-chip en-vivo">EN VIVO</div>
-    <div id="vivo" class="video-chip vivo-chip e-inactivo" aria-live="polite"><span id="vivo-estado">Detenido</span></div>
     <label id="zoom-caja" class="zoom-caja" hidden><span class="visualmente-oculto">Zoom de la cámara</span>
       <input id="zoom" type="range" min="1" max="2" step="0.1" value="1"><span id="zoom-valor" class="num">1.0×</span></label>
   </div>
@@ -31,11 +30,9 @@
       <li id="f-ejes"><span class="etapa">{% icono "check" %}Ejes</span><span class="valor" id="v-ejes">–</span></li>
       <li id="f-pasajeros"><span class="etapa">{% icono "check" %}Pasajeros</span><span class="valor" id="v-pasajeros">–</span></li>
     </ol>
-    <p id="anterior" class="anterior-cobro" hidden></p>
-    <div id="resultado" class="resultado-cobro"><span class="resultado-textos"><span id="resultado-texto">Esperando vehículo</span><span id="resultado-detalle" class="resultado-linea" hidden></span></span><span id="resultado-hora" class="num"></span></div>
+    <div id="resultado" class="resultado-cobro"><span class="resultado-textos"><span id="resultado-texto">Esperando vehículo</span><span id="resultado-detalle" class="resultado-linea" hidden></span></span></div>
     <div class="solo-escritorio">
       <div id="captura" class="captura-grande">{% icono "imagen" %}</div>
-      <p id="lectura" class="tenue pequeno mt-2"></p>
     </div>
   </section>
 
@@ -44,7 +41,7 @@
   </div>
 
   <section class="caseta-extra solo-escritorio" aria-label="Diagnóstico">
-    <p class="diagnostico" id="diagnostico">Lectura del frame: <span id="vivo-placa">–</span> · <span id="vivo-tipo">–</span> · Latencia <span id="latencia">–</span> · Peticiones (sesión) <span id="contador">0</span> · <span id="frecuencia">–</span> · Placa <span id="conf-placa">–</span> · Tipo <span id="conf-tipo">–</span> · <span id="lat-modelos">–</span><span id="ultimo-error-caja" hidden> · Error: <span id="ultimo-error"></span></span></p>
+    <p class="diagnostico" id="diagnostico">Estado <span id="vivo-estado">Detenido</span> · Lectura del frame: <span id="vivo-placa">–</span> · <span id="vivo-tipo">–</span> · Latencia <span id="latencia">–</span> · Peticiones (sesión) <span id="contador">0</span> · <span id="frecuencia">–</span> · Placa <span id="conf-placa">–</span> · Tipo <span id="conf-tipo">–</span> · <span id="lat-modelos">–</span><span id="ultimo-error-caja" hidden> · Error: <span id="ultimo-error"></span></span></p>
   </section>
 </div>
 <canvas id="lienzo" hidden></canvas>
@@ -118,8 +115,7 @@
   // --- Franja "En vivo" y diagnóstico -----------------------------------------------------------------
   // tipo: inactivo | buscando | leyendo | en_curso | registrado | error
   function estadoVivo(tipo, texto) {
-    $("vivo").className = "video-chip vivo-chip e-" + tipo;
-    $("vivo-estado").textContent = texto;
+    $("vivo-estado").textContent = texto || "–";
   }
 
   function pct(c) { return c == null ? "–" : Math.round(c * 100) + " %"; }
@@ -320,7 +316,6 @@
     limpiarCajas();
     pintarFlujo({});
     pasoMostrado = null; enCaptura = false;
-    $("anterior").hidden = true;
     $("frecuencia").textContent = "–";
     estadoVivo("inactivo", "Detenido");
   }
@@ -332,7 +327,7 @@
       body: JSON.stringify({ caseta_id: CASETA_ID })
     }).then(function (r) { return r.ok ? r.json() : {}; }).then(function (d) {
       var p = d && d.resuelto;
-      if (p) resultado("cobrado", "Cobrado - salió", "", "Tarifa " + (p.tarifa || "–") + " Bs · " + p.resultado_texto);
+      if (p) resumenCobro(p);
     }).catch(function () {});
   }
 
@@ -411,13 +406,12 @@
     $("candado").hidden = !f.placa_bloqueada;
   }
 
-  function resultado(clase, texto, hora, detalle) {
+  function resultado(clase, texto, detalle) {
     var r = $("resultado");
     r.className = "resultado-cobro " + (clase || "");
     $("resultado-texto").textContent = texto;
     $("resultado-detalle").textContent = detalle || "";
     $("resultado-detalle").hidden = !detalle;
-    $("resultado-hora").textContent = hora || "";
     if (clase) { void r.offsetWidth; r.classList.add("nuevo"); }
   }
 
@@ -430,42 +424,26 @@
     $("captura").innerHTML = ""; $("captura").appendChild(img);
   }
 
-  function horaDe(iso) {
-    return new Date(iso).toLocaleTimeString("es-BO",
-      { hour: "2-digit", minute: "2-digit", second: "2-digit", timeZone: "America/La_Paz" });
+  // Solo el monto y si la placa está registrada. Borde verde = cobrado; rojo = no cobrado.
+  function resumenCobro(p) {
+    resultado(p.estado === "cobrado" ? "cobrado" : "alerta",
+              "Monto: " + (p.tarifa != null ? p.tarifa + " Bs" : "–"),
+              "Registrado: " + (p.registrada ? "Sí" : "No"));
   }
 
-  function mostrarPaso(p, captura, mensaje) {
-    // Solo el cobro lleva color: cobrado → verde; no cobrado (pendiente de pago, error) → rojo.
-    var clase = p.estado === "cobrado" ? "cobrado" : "alerta";
-    // Siempre "Tarifa: X Bs" y debajo si se cobró o por qué no.
-    var tarifa = "Tarifa: " + (p.tarifa != null ? p.tarifa + " Bs" : "–");
-    resultado(clase, tarifa, horaDe(p.created_at), p.resultado_texto || mensaje);
+  function mostrarPaso(p, captura) {
+    resumenCobro(p);
     ponerCaptura(captura);
-    $("lectura").textContent = (p.nota || "") +
-      (p.fuente_categoria === "registro" ? " Tipo tomado del registro del vehículo." : "");
-  }
-
-  // Se confirmó otra placa antes de que el anterior saliera del todo: el anterior se cerró como cobrado.
-  function mostrarAnterior(p) {
-    var a = $("anterior"), r = document.createElement("span");
-    r.className = p.estado === "cobrado" ? "ok" : "no";
-    r.textContent = p.resultado_texto;
-    a.textContent = "Vehículo anterior " + p.placa + ": ";
-    a.appendChild(r);
-    if (p.tarifa != null) a.appendChild(document.createTextNode(" · Tarifa " + p.tarifa + " Bs"));
-    a.hidden = false;
   }
 
   // Modo de envío según la respuesta: capturando un vehículo (2 fps), resultado fijo (0.5 fps) o espera (1 fps).
   var MODO = { en_curso: "captura", esperando_confirmacion: "captura", registrado: "fijo", fijo: "fijo",
                salida: "espera", sin_placa: "espera" };
 
-  // El vehículo salió del cuadro: "Cobrado - salió" unos segundos y luego la tarjeta vuelve a la espera.
+  // El vehículo salió del cuadro: su resultado (ya cobrado) unos segundos y luego la tarjeta vuelve a la espera.
   function mostrarSalida(p) {
     pasoMostrado = null; enCaptura = false;
-    resultado("cobrado", "Cobrado - salió", horaDe(new Date().toISOString()),
-              "Tarifa " + (p.tarifa != null ? p.tarifa : "–") + " Bs · " + p.resultado_texto);
+    resumenCobro(p);  // ya cobrado: borde verde
     estadoVivo("registrado", "Salió " + p.placa);
     salidaHasta = Date.now() + SALIDA_MS;
     clearTimeout(esperaSalida);
@@ -476,7 +454,6 @@
     salidaHasta = 0;
     if (pasoMostrado !== null || enCaptura || !flujo) return;  // ya empezó otro vehículo
     $("captura").innerHTML = ICONO_IMAGEN;
-    $("lectura").textContent = "";
     pintarFlujo({});
     resultado("", "Esperando vehículo");
   }
@@ -499,28 +476,26 @@
     mostrarLectura(d.lectura);
     dibujarCajas(d.lectura, ancho, alto);
     fijarModo(MODO[d.accion] || "espera");
-    if (d.anterior) mostrarAnterior(d.anterior);
 
     // Resultado fijo: mientras sea el mismo vehículo (misma placa o ninguna), la tarjeta no cambia.
     if ((d.accion === "registrado" || d.accion === "fijo") && d.paso) {
       if (pasoMostrado !== d.paso.id) {
         pasoMostrado = d.paso.id;
         pintarFlujo(d.flujo);
-        mostrarPaso(d.paso, d.captura || d.paso.imagen_url, d.mensaje);
+        mostrarPaso(d.paso, d.captura || d.paso.imagen_url);
         estadoVivo("registrado", "Resultado fijo · " + d.paso.placa);
       }
       return;
     }
     if (d.accion === "salida" && d.paso) { mostrarSalida(d.paso); return; }
-    // Mientras se muestra "Cobrado - salió", los frames vacíos no tocan la tarjeta.
+    // Mientras se muestra el resultado del vehículo que salió, los frames vacíos no tocan la tarjeta.
     if (d.accion === "sin_placa" && Date.now() < salidaHasta) { estadoVivo("buscando", d.mensaje); return; }
     if (salidaHasta) { clearTimeout(esperaSalida); salidaHasta = 0; }
     // Placa distinta confirmada: vehículo nuevo, la tarjeta se limpia y arranca el flujo de nuevo.
     if (pasoMostrado !== null) {
       pasoMostrado = null;
       $("captura").innerHTML = ICONO_IMAGEN;
-      $("lectura").textContent = "";
-      resultado("", "Esperando vehículo");
+        resultado("", "Esperando vehículo");
     }
     if (d.accion === "en_curso" && !enCaptura) resultado("", "Vehículo en curso…");
     enCaptura = d.accion === "en_curso";
@@ -538,9 +513,7 @@
   // Pusher: si el paso en pantalla se cobró por otro lado (p. ej. el operador atendió su alerta), se actualiza.
   document.addEventListener("iap:pago", function (e) {
     var p = e.detail && e.detail.paso;
-    if (p && pasoMostrado === p.id) {
-      resultado("cobrado", "Tarifa: " + (p.tarifa != null ? p.tarifa + " Bs" : "–"), p.hora, p.resultado_texto);
-    }
+    if (p && pasoMostrado === p.id) resumenCobro(p);
   });
   $("contador").textContent = enviadas;
   window.addEventListener("resize", programarGiro);

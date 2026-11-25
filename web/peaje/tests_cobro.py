@@ -297,8 +297,12 @@ class MigracionTests(TestCase):
 
 
 class PantallaCasetaTests(TestCase):
-    def test_tarjeta_del_vehiculo_anterior(self):
+    def test_tarjeta_solo_monto_y_registrado_sin_avisos_sobre_la_camara(self):
         entrar(self.client, Usuario.objects.get(email_google="lozogomol@gmail.com"))
         r = self.client.get("/caseta")
-        self.assertContains(r, 'id="anterior"')
-        self.assertContains(r, 'var clase = p.estado === "cobrado" ? "cobrado" : "alerta";')  # verde o rojo
+        self.assertNotContains(r, 'id="anterior"')
+        self.assertNotContains(r, 'id="vivo"')            # sin aviso de estado sobre el video
+        self.assertNotContains(r, "Cobrado - salió")
+        self.assertContains(r, '"Monto: " + (p.tarifa != null ? p.tarifa + " Bs" : "–")')
+        self.assertContains(r, '"Registrado: " + (p.registrada ? "Sí" : "No")')
+        self.assertContains(r, 'resultado(p.estado === "cobrado" ? "cobrado" : "alerta",')  # borde verde o rojo

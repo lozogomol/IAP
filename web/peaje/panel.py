@@ -41,6 +41,7 @@ def resumen_paso(paso):
         "tarifa": f"{paso.tarifa:.2f}" if paso.tarifa is not None else None,
         "cobrado": paso.cobrado,
         "forma_pago": paso.forma_pago,
+        "registrada": paso.registrada,
         "motivo_pendiente": paso.motivo_pendiente if paso.pendiente else "",
         "resultado_texto": paso.resultado_texto,
         "hora": local.strftime("%H:%M:%S"),

@@ -13,8 +13,8 @@
 </head>
 <body class="{% block clase_body %}{% endblock %}">
   {% block cabecera %}
-  <header id="cabecera" class="barra-sup galaxia">
-    <span class="estrellas" aria-hidden="true"></span>
+  <header id="cabecera" class="barra-sup">
+    
     <div class="barra">
       <a class="marca" href="/">{% include "peaje/_icono.html" %}<span>Peaje IAP</span></a>
       <div id="navegacion" class="navegacion">
@@ -196,7 +196,8 @@
       },
       mostrarAlerta: function (d) {
         var b = document.getElementById("banner-alerta");
-        if (!b) return;
+        // En el punto de cobro no se muestran avisos sobre la cámara.
+        if (!b || document.body.classList.contains("pagina-caseta")) return;
         document.getElementById("banner-texto").textContent = IAP.textoAlerta(d);
         b.hidden = false;
       }

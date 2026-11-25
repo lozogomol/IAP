@@ -123,6 +123,11 @@ class Paso(models.Model):
         return self.estado == "pendiente_pago"
 
     @property
+    def registrada(self):
+        """La placa estaba registrada (y activa) al pasar: no tiene alerta de placa no registrada."""
+        return not any(a.tipo == "placa_no_registrada" for a in self.alertas.all())
+
+    @property
     def motivo_pendiente(self):
         """Tipo de alerta del paso (placa_no_registrada | saldo_insuficiente), o "" si no tiene."""
         alerta = next(iter(self.alertas.all()), None)  # usa prefetch_related("alertas") si lo hay

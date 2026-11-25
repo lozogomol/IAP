@@ -81,8 +81,8 @@ class Paso(models.Model):
 
     - Registrada con saldo suficiente: "cobrado" con forma_pago "saldo" (se descuenta el saldo).
     - No registrada o con saldo insuficiente: "pendiente_pago" (forma_pago vacía) + su alerta en tiempo real; pasa a
-      "cobrado" con forma_pago "efectivo" cuando se confirma la placa del siguiente vehículo en ese punto de cobro o
-      cuando el operador atiende la alerta (ver cobro.cobrar_en_efectivo). No se toca el saldo.
+      "cobrado" con forma_pago "efectivo" cuando el vehículo sale del cuadro (flujo.py), al cerrar el punto de cobro
+      o cuando el operador atiende la alerta (ver cobro.cobrar_en_efectivo). No se toca el saldo.
     """
 
     ESTADOS = [
@@ -224,6 +224,9 @@ class PasoEnCurso(models.Model):
     evidencia_confianza = models.FloatField(null=True, blank=True)
     # Resultado fijo en pantalla: el último paso registrado (placa en blanco = no hay vehículo en captura).
     paso = models.ForeignKey(Paso, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    # Salida del vehículo del resultado fijo: frames seguidos sin su placa ni ningún vehículo, y cuándo salió.
+    frames_sin_vehiculo = models.PositiveSmallIntegerField(default=0)
+    salida_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = "pasos_en_curso"

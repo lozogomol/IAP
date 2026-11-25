@@ -24,6 +24,7 @@ urlpatterns = [
     path("usuarios/<int:pk>", views.usuario_accion, name="usuario_accion"),
     # API v1
     path("api/v1/pasos/frame", api.paso_frame, name="api_paso_frame"),
+    path("api/v1/caseta/cerrar", api.caseta_cerrar, name="api_caseta_cerrar"),
     path("api/v1/vehiculos/consulta", api.vehiculo_consulta, name="api_vehiculo_consulta"),
     path("api/v1/placas/leer", api.placa_leer, name="api_placa_leer"),
     path("api/v1/agente/chat", api.agente_chat, name="api_agente_chat"),

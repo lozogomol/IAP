@@ -119,7 +119,8 @@ def registrar_paso(caseta_id, placa, usuario=None, confianza=None, texto_leido=N
     Caseta real, si pasó pagó: registrada con saldo suficiente → "cobrado" con forma_pago "saldo" (descuenta el
     saldo); no registrada (o inactiva) o con saldo insuficiente → "pendiente_pago" con su alerta en tiempo real
     (placa_no_registrada = posible evasión / saldo_insuficiente); no se toca el saldo: paga en efectivo y el paso se
-    cierra con cobrar_en_efectivo. Solo si no hay ninguna categoría no hay tarifa y el monto queda en 0. Los ejes y
+    cierra con cobrar_en_efectivo al salir el vehículo del cuadro (flujo.py), al cerrar el punto de cobro o cuando
+    el operador atiende la alerta. Solo si no hay ninguna categoría no hay tarifa y el monto queda en 0. Los ejes y
     pasajeros que no se detectaron quedan en null: nunca se inventan.
     """
     with transaction.atomic():
@@ -164,7 +165,8 @@ def registrar_paso(caseta_id, placa, usuario=None, confianza=None, texto_leido=N
                          "nota": nota, "saldo": vehiculo.saldo if vehiculo else None}
 
 
-NOTA_SIGUIENTE = "Cobrado en efectivo al pasar el siguiente vehículo"
+NOTA_SALIDA = "Cobrado en efectivo al salir el vehículo"
+NOTA_CIERRE = "Cobrado al cerrar el punto de cobro"
 NOTA_OPERADOR = "Cobrado por el operador"
 
 

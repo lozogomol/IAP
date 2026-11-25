@@ -382,8 +382,8 @@ class FlujoTests(TestCase):
     def test_misma_placa_vuelve_a_cobrarse_tras_10_min_sin_verla(self):
         self._completo(0, "3876LBD")
         self.assertEqual(self._f(9 * 60, [_lectura("3876LBD", 0.9)])["accion"], "fijo")  # visto a los 9 min
-        for t in (12 * 60, 18 * 60):  # sin verla: la pantalla sigue fija
-            self.assertEqual(self._f(t, [])["accion"], "fijo")
+        self.assertEqual(self._f(12 * 60, [])["accion"], "fijo")    # 1 frame sin verla: aún no salió
+        self.assertEqual(self._f(18 * 60, [])["accion"], "salida")  # 2 frames y > 3 s: salió
         r = self._f(9 * 60 + 10 * 60 + 1, [_lectura("3876LBD", 0.9, categoria="auto")], self._con("auto"))
         self.assertEqual((r["accion"], r["flujo"]["placa"]), ("en_curso", "3876LBD"))
         self.assertEqual(self._f(9 * 60 + 10 * 60 + 8, [])["accion"], "registrado")

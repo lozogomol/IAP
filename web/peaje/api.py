@@ -46,9 +46,10 @@ def _ms(t0):
         "registra y cobra una sola vez. (f) El resultado queda FIJO (`accion: fijo`) mientras se vea la misma placa "
         "o ninguna; solo una placa distinta confirmada inicia otro vehículo. La misma placa vuelve a cobrarse tras "
         "otra placa distinta o 10 min sin verla. Placa no registrada o con saldo insuficiente: el paso queda "
-        "`pendiente_pago` (con su alerta) y, al confirmarse la placa del siguiente vehículo, pasa a `cobrado` con "
-        "forma de pago `efectivo`; ese paso resuelto llega en `anterior`. "
-        "Respuesta: `accion` `sin_placa` | `esperando_confirmacion` | `en_curso` | `registrado` | `fijo` | "
+        "`pendiente_pago` (con su alerta en tiempo real) y pasa a `cobrado` con forma de pago `efectivo` cuando el "
+        "vehículo SALE del cuadro (2 frames seguidos y >= 3 s sin su placa ni ningún vehículo): `accion: salida`. "
+        "Si se confirma otra placa antes de que salga del todo, primero se cierra el anterior (llega en `anterior`). "
+        "Respuesta: `accion` `sin_placa` | `esperando_confirmacion` | `en_curso` | `registrado` | `fijo` | `salida` | "
         "`error`; `flujo` {etapa, placa, placa_bloqueada, tipo, tipo_texto, tipo_listo, ejes, ejes_listo, pasajeros, "
         "pasajeros_listo, segundos}; `lectura` (resultado de ESTE frame: placa, confianza, categoria, ejes, "
         "pasajeros, cajas [x1, y1, x2, y2] en píxeles del frame enviado, latencias); `paso` (si se registró o es el "
@@ -124,15 +125,20 @@ def _paso_frame(request):
     r = flujo.procesar_frame(caseta, lecturas, vehiculo, imagen, usuario=request.user)
     accion, estado_flujo = r["accion"], r["flujo"]
     if r.get("resuelto"):
-        # Llegó el siguiente vehículo: el paso anterior pendiente se cobró en efectivo (panel y alertas en vivo).
-        panel.publicar_pago(r["resuelto"])
-        responder = _con_anterior(responder, r["resuelto"])
+        # El vehículo salió (o llegó otro antes de que saliera del todo): su paso pendiente se cobró en efectivo.
+        panel.publicar_pago(r["resuelto"])  # panel, alertas y punto de cobro en vivo
+        if accion != "salida":
+            responder = _con_anterior(responder, r["resuelto"])
     if accion == "sin_placa":
         return responder("sin_placa", "Buscando placa…", lectura, flujo=estado_flujo)
     if accion == "esperando_confirmacion":
         return responder("esperando_confirmacion",
                          f"Leyendo {mejor['placa']} (confirmando {r['votos']}/{cobro.MIN_VOTOS})", lectura,
                          flujo=estado_flujo, votos=r["votos"], votos_necesarios=cobro.MIN_VOTOS)
+    if accion == "salida":
+        # El vehículo salió del cuadro: la tarjeta muestra "Cobrado - salió" y vuelve a la espera.
+        return responder("salida", f"Placa {r['paso'].placa_normalizada} · Cobrado - salió", lectura,
+                         flujo=estado_flujo, paso=cobro.paso_a_dict(r["paso"]))
     if accion == "fijo":
         # Mismo vehículo (o ninguno): no se recalcula nada; se repite el resultado fijo.
         return responder("fijo", _mensaje_cobro(r["paso"]), lectura, flujo=estado_flujo,
@@ -147,6 +153,27 @@ def _paso_frame(request):
     return responder("registrado", _mensaje_cobro(paso), lectura, flujo=estado_flujo,
                      paso=cobro.paso_a_dict(paso, r["info"]), motivo=r["motivo"],
                      captura=("data:image/jpeg;base64," + base64.b64encode(evidencia).decode()) if evidencia else None)
+
+
+@extend_schema(
+    summary="Cierra el punto de cobro (botón Detener)",
+    description=("El vehículo en pantalla se da por salido: si su paso estaba `pendiente_pago`, pasa a `cobrado` "
+                 "en `efectivo` y su alerta queda atendida con la nota \"Cobrado al cerrar el punto de cobro\" "
+                 "(se emite por Pusher). Responde `{resuelto: paso | null}`."),
+    request=inline_serializer("CerrarEntrada", fields={"caseta_id": serializers.IntegerField()}),
+    responses={200: _respuesta, 400: _respuesta},
+)
+@api_view(["POST"])
+@parser_classes([JSONParser, MultiPartParser, FormParser])
+def caseta_cerrar(request):
+    cid = str(request.data.get("caseta_id", ""))
+    caseta = Caseta.objects.filter(pk=int(cid)).first() if cid.isdigit() else None
+    if caseta is None:
+        return Response({"detalle": "caseta_id inválido."}, status=status.HTTP_400_BAD_REQUEST)
+    paso = flujo.cerrar_punto(caseta)
+    if paso:
+        panel.publicar_pago(paso)
+    return Response({"resuelto": cobro.paso_a_dict(paso) if paso else None})
 
 
 def _con_anterior(responder, paso):

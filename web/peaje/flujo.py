@@ -8,9 +8,14 @@ Máquina de estados por caseta (fila PasoEnCurso), alimentada por los frames de 
               mayoría, o a los 6 s del bloqueo, se registra y cobra UNA sola vez. Si a los 6 s falta el tipo: el
               del vehículo registrado; si no está registrado, la clase M2 más vista; si nunca se vio, "auto". Si
               faltan los ejes: 2 (mínimo de la categoría), marcados como estimados (ejes_detectados = null).
-  RESULTADO   El paso registrado queda FIJO. Mientras se vea la misma placa o ninguna, no se recalcula ni se
-  FIJO        registra nada. Solo una placa DISTINTA confirmada por votación inicia un vehículo nuevo; en ese
-              momento, si el paso anterior quedó "pendiente_pago", se cobra en efectivo (cobro.cobrar_en_efectivo).
+  RESULTADO   El paso registrado queda FIJO. Mientras se vea la misma placa o el vehículo, no se recalcula ni se
+  FIJO        registra nada. Solo una placa DISTINTA confirmada por votación inicia un vehículo nuevo.
+  SALIDA      El vehículo SALIÓ cuando no se ve ni su placa ni ningún vehículo (M2) en 2 frames seguidos y pasaron
+              >= 3 s desde la última vez que se vio. Al salir, si su paso quedó "pendiente_pago" (no registrada o
+              saldo insuficiente) se cobra en efectivo (cobro.cobrar_en_efectivo, nota "al salir el vehículo"); si ya
+              estaba cobrado con saldo no cambia nada. Si una placa nueva se confirma antes de que el anterior salga
+              del todo, primero se cierra el anterior igual (salió) y luego empieza el nuevo. Al cerrar el punto de
+              cobro (cerrar_punto) el pendiente también se da por cobrado.
               La misma placa vuelve a cobrarse solo después de otra placa distinta o tras 10 min sin verla.
 """
 from datetime import timedelta
@@ -23,6 +28,8 @@ from .models import CATEGORIAS, LecturaPlaca, PasoEnCurso, Vehiculo
 
 MAX_CAPTURA = timedelta(seconds=6)    # tope para juntar tipo y ejes después de bloquear la placa
 REPETIR = timedelta(minutes=10)       # la misma placa sin verse este tiempo vuelve a ser un vehículo nuevo
+SALIDA = timedelta(seconds=3)         # sin ver la placa ni ningún vehículo este tiempo (y FRAMES_SALIDA frames) = salió
+FRAMES_SALIDA = 2
 VOTOS_TIPO = 2
 VOTOS_EJES = 2
 VOTOS_PASAJEROS = 2
@@ -140,6 +147,7 @@ def _limpiar_captura(estado, ahora):
 def _bloquear_placa(estado, voto, ahora):
     _limpiar_captura(estado, ahora)
     estado.paso = None  # la tarjeta se limpia: empieza un vehículo nuevo
+    estado.salida_at, estado.frames_sin_vehiculo = None, 0
     estado.placa = voto["placa"]
     estado.texto_leido = voto["placa"]
     estado.confianza = voto["confianza"]
@@ -208,6 +216,7 @@ def _registrar(estado, usuario, ahora, motivo):
     _limpiar_captura(estado, ahora)
     estado.paso = paso
     estado.ultimo_visto_at = ahora
+    estado.salida_at, estado.frames_sin_vehiculo = None, 0
     return {"accion": "registrado", "paso": paso, "info": info, "evidencia": evidencia, "motivo": motivo,
             "flujo": flujo_de_paso(paso)}
 
@@ -216,7 +225,8 @@ def procesar_frame(caseta, lecturas, vehiculo, imagen, usuario=None, ahora=None)
     """Avanza la máquina de estados de la caseta con un frame ya inferido.
 
     Devuelve {"accion", "flujo", "paso", "info", "evidencia", "motivo", "votos", "resuelto"}; accion: sin_placa |
-    esperando_confirmacion | en_curso | registrado | fijo.
+    esperando_confirmacion | en_curso | registrado | fijo | salida. `resuelto`: paso pendiente que se acaba de
+    cobrar en efectivo (para avisar por Pusher).
     """
     ahora = ahora or timezone.now()
     with transaction.atomic():
@@ -244,15 +254,31 @@ def _avanzar(estado, caseta, lecturas, vehiculo, imagen, usuario, ahora):
         return _cerrar_si_listo(estado, usuario, ahora) or {"accion": "en_curso", "flujo": flujo_dict(estado, ahora)}
 
     fijo = estado.paso  # RESULTADO FIJO (o None = espera)
+    en_pantalla = fijo is not None and estado.salida_at is None  # su vehículo aún no salió
     vigente = fijo is not None and (estado.ultimo_visto_at is None or ahora - estado.ultimo_visto_at < REPETIR)
-    # Tras 10 min sin verla, la placa del resultado fijo vuelve a contar como vehículo nuevo (la pantalla sigue igual).
+    # Tras 10 min sin verla, la placa del resultado fijo vuelve a contar como vehículo nuevo.
     excluida = fijo.placa_normalizada if vigente else None
-    if excluida and any(l["placa"] == excluida for l in lecturas):
+    propia = bool(excluida) and any(l["placa"] == excluida for l in lecturas)
+    if propia:
         estado.ultimo_visto_at = ahora  # sigue el mismo vehículo
+        if not en_pantalla:  # se volvió a ver tras darlo por salido: vuelve su resultado fijo (ya está cobrado)
+            estado.salida_at, en_pantalla = None, True
     nuevas = [l for l in lecturas if l["placa"] != excluida]
     mejor = nuevas[0] if nuevas else None
+
+    salio = None
+    if en_pantalla:
+        if propia or nuevas or vehiculo.get("caja_vehiculo") or vehiculo.get("clase"):
+            estado.frames_sin_vehiculo = 0
+            estado.ultimo_visto_at = ahora
+        else:
+            estado.frames_sin_vehiculo += 1
+            if estado.frames_sin_vehiculo >= FRAMES_SALIDA and ahora - estado.ultimo_visto_at >= SALIDA:
+                salio = _dar_salida(estado, ahora, cobro.NOTA_SALIDA)
     if mejor is None:
-        return _resultado_fijo(fijo) if fijo else {"accion": "sin_placa", "flujo": flujo_dict(estado, ahora)}
+        if salio:
+            return salio
+        return _resultado_fijo(fijo) if en_pantalla else {"accion": "sin_placa", "flujo": flujo_dict(estado, ahora)}
 
     LecturaPlaca.objects.create(caseta=caseta, placa=mejor["placa"], confianza=mejor["confianza"],
                                 categoria=mejor["categoria"], ejes=mejor["ejes"], pasajeros=vehiculo.get("pasajeros"),
@@ -261,13 +287,12 @@ def _avanzar(estado, caseta, lecturas, vehiculo, imagen, usuario, ahora):
     if voto is None:
         votos = LecturaPlaca.objects.filter(caseta=caseta, placa=mejor["placa"],
                                             created_at__gte=_inicio_votacion(estado, ahora)).count()
-        if fijo:  # una lectura suelta de otra placa no cambia la pantalla
+        if en_pantalla:  # una lectura suelta de otra placa no cambia la pantalla
             return {**_resultado_fijo(fijo), "votos": votos, "candidata": mejor["placa"]}
         return {"accion": "esperando_confirmacion", "votos": votos, "flujo": flujo_dict(estado, ahora)}
 
-    # Placa distinta confirmada: vehículo nuevo. Si el anterior quedó pendiente de pago, pagó en efectivo al irse.
-    anterior = estado.paso
-    resuelto = anterior if anterior and cobro.cobrar_en_efectivo(anterior, cobro.NOTA_SIGUIENTE, ahora) else None
+    # Placa distinta confirmada: vehículo nuevo. Si el anterior no terminó de salir, primero se cierra (salió).
+    resuelto = _dar_salida(estado, ahora, cobro.NOTA_SALIDA).get("resuelto") if en_pantalla else None
     _bloquear_placa(estado, voto, ahora)
     if mejor["placa"] == estado.placa:
         estado.evidencia = vehiculo.get("evidencia") or imagen
@@ -279,6 +304,28 @@ def _avanzar(estado, caseta, lecturas, vehiculo, imagen, usuario, ahora):
     if resuelto:
         r["resuelto"] = resuelto
     return r
+
+
+def _dar_salida(estado, ahora, nota):
+    """El vehículo del resultado fijo salió: si su paso estaba pendiente de pago, se cobra en efectivo."""
+    paso = estado.paso
+    cobrado_ahora = cobro.cobrar_en_efectivo(paso, nota, ahora)
+    estado.salida_at, estado.frames_sin_vehiculo = ahora, 0
+    return {"accion": "salida", "paso": paso, "flujo": flujo_de_paso(paso),
+            "resuelto": paso if cobrado_ahora else None}
+
+
+def cerrar_punto(caseta, ahora=None):
+    """El operador detuvo el punto de cobro: el vehículo en pantalla se da por salido y, si su paso estaba
+    pendiente de pago, por cobrado ("Cobrado al cerrar el punto de cobro"). Devuelve el paso cobrado o None."""
+    ahora = ahora or timezone.now()
+    with transaction.atomic():
+        estado = fila_bloqueada().filter(caseta=caseta).first()
+        if estado is None or estado.paso_id is None or estado.salida_at is not None:
+            return None
+        r = _dar_salida(estado, ahora, cobro.NOTA_CIERRE)
+        estado.save(update_fields=["salida_at", "frames_sin_vehiculo"])
+        return r["resuelto"]
 
 
 def _cerrar_si_listo(estado, usuario, ahora):
@@ -303,6 +350,6 @@ def estado_de(caseta):
     estado = PasoEnCurso.objects.select_related("paso").filter(caseta=caseta).first()
     if estado is None:
         return flujo_dict(PasoEnCurso(caseta=caseta), timezone.now())
-    if not estado.placa and estado.paso:
+    if not estado.placa and estado.paso and estado.salida_at is None:
         return flujo_de_paso(estado.paso)
     return flujo_dict(estado, timezone.now())

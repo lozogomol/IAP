@@ -39,8 +39,8 @@ bloquea; con tipo (M2) y ejes (M3) por mayoría, o a los 6 s con respaldos (tipo
 la misma placa o ninguna; solo una placa distinta confirmada inicia otro vehículo, y la misma placa vuelve a cobrarse
 tras otra placa distinta o 10 min sin verla. Caseta real, si pasó pagó: placa registrada con saldo →
 `cobrado` (forma de pago `saldo`, descuenta el saldo); no registrada o con saldo insuficiente → `pendiente_pago` con su
-alerta en tiempo real, y pasa a `cobrado` en `efectivo` cuando se confirma la placa del siguiente vehículo o cuando el
-operador atiende la alerta (el saldo no se toca). La recaudación suma saldo + efectivo, con desglose en el panel. Frecuencia adaptativa para ahorrar peticiones: 2 fps capturando un
+alerta en tiempo real, y pasa a `cobrado` en `efectivo` cuando el vehículo SALE del cuadro (2 frames seguidos y ≥ 3 s
+sin su placa ni ningún vehículo), al presionar «Detener» o cuando el operador atiende la alerta (el saldo no se toca). La recaudación suma saldo + efectivo, con desglose en el panel. Frecuencia adaptativa para ahorrar peticiones: 2 fps capturando un
 vehículo, 1 fps en espera y 0.5 fps con resultado fijo, nunca dos frames a la vez; el diagnóstico muestra las
 peticiones de la sesión. Cada frame devuelve `accion` (`sin_placa`, `esperando_confirmacion`, `en_curso`,
 `registrado`, `fijo` o `error`), `mensaje`, `flujo` y `lectura`, con las cajas dibujadas sobre el video. Cada frame queda

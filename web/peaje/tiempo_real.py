@@ -3,7 +3,7 @@
 Eventos en el canal `private-peaje`:
 - `paso`: {"paso": {...}, "alerta": {...} | null, "kpis": {...}, "grafica": {...}}
 - `pago`: {"paso": {...}, "alerta": {"id", "tipo", "nota"} | null, "kpis": {...}} (un paso pendiente se cobró en
-  efectivo: al pasar el siguiente vehículo o al atender su alerta)
+  efectivo: al salir el vehículo, al cerrar el punto de cobro o al atender su alerta)
 - `kpis`: {"kpis": {...}}
 """
 import hashlib

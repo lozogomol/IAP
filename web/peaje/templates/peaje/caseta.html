@@ -68,6 +68,7 @@
   var ICONO_IMAGEN = document.getElementById("captura").innerHTML;
   var video = $("video"), lienzo = $("lienzo"), cajas = $("cajas"), btn = $("btn");
   var flujo = null, temporizador = null, enCurso = false, modo = "espera", pasoMostrado = null, enCaptura = false;
+  var SALIDA_MS = 4000, salidaHasta = 0, esperaSalida = null;
   var enviadas = leerPeticiones();
 
   // Peticiones de la sesión del navegador (sobrevive a recargar la página; si no hay almacenamiento, desde 0).
@@ -302,9 +303,12 @@
     }).then(function () { btn.disabled = false; });
   }
 
-  // La cámara es continua: solo se detiene con "Detener" o al salir de la página.
-  function detener(motivo) {
+  // La cámara es continua: solo se detiene con "Detener" o al salir de la página. `cerrar`: además cierra el punto
+  // de cobro en el servidor (el vehículo en pantalla se da por salido y, si estaba pendiente, por cobrado).
+  function detener(motivo, cerrar) {
+    if (cerrar && flujo) cerrarPunto();
     clearTimeout(temporizador); temporizador = null;
+    clearTimeout(esperaSalida); salidaHasta = 0;
     if (flujo) { flujo.getTracks().forEach(function (t) { t.stop(); }); flujo = null; }
     video.srcObject = null;
     orientacion = null;
@@ -319,6 +323,17 @@
     $("anterior").hidden = true;
     $("frecuencia").textContent = "–";
     estadoVivo("inactivo", "Detenido");
+  }
+
+  function cerrarPunto() {
+    fetch("/api/v1/caseta/cerrar", {
+      method: "POST", credentials: "same-origin", keepalive: true,
+      headers: { "X-CSRFToken": csrfToken(), "Content-Type": "application/json" },
+      body: JSON.stringify({ caseta_id: CASETA_ID })
+    }).then(function (r) { return r.ok ? r.json() : {}; }).then(function (d) {
+      var p = d && d.resuelto;
+      if (p) resultado("cobrado", "Cobrado - salió", "", "Tarifa " + (p.tarifa || "–") + " Bs · " + p.resultado_texto);
+    }).catch(function () {});
   }
 
   function fijarModo(m) {
@@ -421,8 +436,8 @@
   }
 
   function mostrarPaso(p, captura, mensaje) {
-    // Cobrado → verde; pendiente de pago (no registrada / saldo insuficiente) → ámbar; error → rojo.
-    var clase = p.estado === "cobrado" ? "cobrado" : p.estado === "pendiente_pago" ? "ambar" : "alerta";
+    // Solo el cobro lleva color: cobrado → verde; no cobrado (pendiente de pago, error) → rojo.
+    var clase = p.estado === "cobrado" ? "cobrado" : "alerta";
     // Siempre "Tarifa: X Bs" y debajo si se cobró o por qué no.
     var tarifa = "Tarifa: " + (p.tarifa != null ? p.tarifa + " Bs" : "–");
     resultado(clase, tarifa, horaDe(p.created_at), p.resultado_texto || mensaje);
@@ -431,17 +446,40 @@
       (p.fuente_categoria === "registro" ? " Tipo tomado del registro del vehículo." : "");
   }
 
-  // Llegó el siguiente vehículo: el anterior que quedó pendiente se resuelve como cobrado en efectivo.
+  // Se confirmó otra placa antes de que el anterior saliera del todo: el anterior se cerró como cobrado.
   function mostrarAnterior(p) {
-    var a = $("anterior");
-    a.textContent = "Vehículo anterior " + p.placa + ": " + p.resultado_texto +
-      (p.tarifa != null ? " · Tarifa " + p.tarifa + " Bs" : "");
+    var a = $("anterior"), r = document.createElement("span");
+    r.className = p.estado === "cobrado" ? "ok" : "no";
+    r.textContent = p.resultado_texto;
+    a.textContent = "Vehículo anterior " + p.placa + ": ";
+    a.appendChild(r);
+    if (p.tarifa != null) a.appendChild(document.createTextNode(" · Tarifa " + p.tarifa + " Bs"));
     a.hidden = false;
   }
 
   // Modo de envío según la respuesta: capturando un vehículo (2 fps), resultado fijo (0.5 fps) o espera (1 fps).
   var MODO = { en_curso: "captura", esperando_confirmacion: "captura", registrado: "fijo", fijo: "fijo",
-               sin_placa: "espera" };
+               salida: "espera", sin_placa: "espera" };
+
+  // El vehículo salió del cuadro: "Cobrado - salió" unos segundos y luego la tarjeta vuelve a la espera.
+  function mostrarSalida(p) {
+    pasoMostrado = null; enCaptura = false;
+    resultado("cobrado", "Cobrado - salió", horaDe(new Date().toISOString()),
+              "Tarifa " + (p.tarifa != null ? p.tarifa : "–") + " Bs · " + p.resultado_texto);
+    estadoVivo("registrado", "Salió " + p.placa);
+    salidaHasta = Date.now() + SALIDA_MS;
+    clearTimeout(esperaSalida);
+    esperaSalida = setTimeout(limpiarTrasSalida, SALIDA_MS);
+  }
+
+  function limpiarTrasSalida() {
+    salidaHasta = 0;
+    if (pasoMostrado !== null || enCaptura || !flujo) return;  // ya empezó otro vehículo
+    $("captura").innerHTML = ICONO_IMAGEN;
+    $("lectura").textContent = "";
+    pintarFlujo({});
+    resultado("", "Esperando vehículo");
+  }
 
   function mostrar(r, d, msCliente, blob, ancho, alto) {
     $("latencia").textContent = msCliente + " ms";
@@ -473,6 +511,10 @@
       }
       return;
     }
+    if (d.accion === "salida" && d.paso) { mostrarSalida(d.paso); return; }
+    // Mientras se muestra "Cobrado - salió", los frames vacíos no tocan la tarjeta.
+    if (d.accion === "sin_placa" && Date.now() < salidaHasta) { estadoVivo("buscando", d.mensaje); return; }
+    if (salidaHasta) { clearTimeout(esperaSalida); salidaHasta = 0; }
     // Placa distinta confirmada: vehículo nuevo, la tarjeta se limpia y arranca el flujo de nuevo.
     if (pasoMostrado !== null) {
       pasoMostrado = null;
@@ -487,11 +529,18 @@
     pintarFlujo(d.flujo, d.accion === "esperando_confirmacion" && d.lectura ? d.lectura.placa : null);
   }
 
-  btn.addEventListener("click", function () { flujo ? detener("Cámara detenida") : iniciar(); });
-  // Salir de la página (u ocultarla: el sistema corta la cámara) la detiene; volver requiere "Iniciar".
-  window.addEventListener("pagehide", function () { if (flujo) detener("Cámara detenida"); });
+  btn.addEventListener("click", function () { flujo ? detener("Cámara detenida", true) : iniciar(); });
+  // Salir de la página (u ocultarla: el sistema corta la cámara) la detiene y cierra el punto de cobro.
+  window.addEventListener("pagehide", function () { if (flujo) detener("Cámara detenida", true); });
   document.addEventListener("visibilitychange", function () {
-    if (document.hidden && flujo) detener("Cámara detenida");
+    if (document.hidden && flujo) detener("Cámara detenida", true);
+  });
+  // Pusher: si el paso en pantalla se cobró por otro lado (p. ej. el operador atendió su alerta), se actualiza.
+  document.addEventListener("iap:pago", function (e) {
+    var p = e.detail && e.detail.paso;
+    if (p && pasoMostrado === p.id) {
+      resultado("cobrado", "Tarifa: " + (p.tarifa != null ? p.tarifa + " Bs" : "–"), p.hora, p.resultado_texto);
+    }
   });
   $("contador").textContent = enviadas;
   window.addEventListener("resize", programarGiro);

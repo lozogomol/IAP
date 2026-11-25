@@ -62,14 +62,20 @@ class ApiFormasTests(TestCase):
 
 
 class PaginaFormasTests(TestCase):
-    def test_capas_colores_y_desvanecido(self):
+    def test_estilo_simple_en_vivo(self):
         entrar(self.client, Usuario.objects.get(email_google="lozogomol@gmail.com"))
         r = self.client.get("/caseta")
-        for capa in ("vehiculo", "llantas", "pasajeros", "placa"):
-            self.assertContains(r, f'data-capa="{capa}" aria-pressed="true"')
-        self.assertContains(r, 'RELLENO_VEHICULO = "rgba(30, 58, 138, 0.30)"')
-        self.assertContains(r, 'AZUL_NOCHE = "#0a1430", AZUL_CLARO = "#9db4ff"')
-        self.assertContains(r, 'ctx.lineWidth = 5; ctx.strokeStyle = "#ffffff"; ctx.stroke();')  # borde blanco
-        self.assertContains(r, 'if (c === "pasajeros") e.alfa = 1;')    # siluetas opacas al instante
-        self.assertContains(r, "SALIDA_MS = 600")                         # se desvanecen, no parpadean
+        # sin polígonos, sin rellenos y sin selector de capas
+        for quitado in ('id="capas"', "data-capa=", "poligono", "RELLENO_VEHICULO", "fillStyle = RELLENO"):
+            self.assertNotContains(r, quitado)
+        self.assertContains(r, 'var AZUL_NOCHE = "#0a1430"')
+        # llantas: un punto (círculo de 6 px de diámetro, borde blanco de 1.5 px) en el keypoint del centro
+        self.assertContains(r, "ctx.arc(q[0], q[1], 3, 0, 2 * Math.PI);")
+        self.assertContains(r, 'ctx.lineWidth = 1.5; ctx.strokeStyle = "#ffffff"; ctx.stroke();')
+        self.assertContains(r, "var k = (l.keypoints || [])[0];")
+        # vehículo: rectángulo de 3 px con borde exterior blanco de 1 px; placa y personas: rectángulo sin relleno
+        self.assertContains(r, 'ctx.lineWidth = 1; ctx.strokeStyle = "#ffffff"; ctx.strokeRect(x - 2, y - 2, bw + 4, bh + 4);')
+        self.assertContains(r, "ctx.lineWidth = 3; ctx.strokeStyle = AZUL_NOCHE; ctx.strokeRect(x, y, bw, bh);")
+        self.assertContains(r, 'etiqueta(ctx, p.n + (p.n === 1 ? " pasajero" : " pasajeros"), arriba[0], arriba[1]);')
+        self.assertContains(r, "SALIDA_MS = 600")                                   # se desvanecen, no parpadean
         self.assertContains(r, "var escala = Math.max(w / e.ancho, h / e.alto);")  # encuadre cover

@@ -25,6 +25,10 @@ las clases de M2 estén en `config.M2_CATEGORIAS` (mapa explícito nombre del mo
   `latencia_ms` (`total`, `m1`…`m4`), `cajas` (`placa`, `vehiculo`, `placas`, `llantas`, `personas`), `detalle`
   (vista, llantas del lado cercano, motivo de los ejes, clase del modelo), `placas` (cada una con SU vehículo),
   `evidencia` (frame con las personas cubiertas, si hubo personas) y, con `?anotada=true`, `imagen`.
+  `formas` (para dibujar en el punto de cobro, en coordenadas de la imagen recibida): `vehiculo.poligono` (contorno
+  de la máscara de M2, simplificado con approxPolyDP a ~60 puntos), `llantas` (cada una con sus `keypoints`
+  `[x, y, confianza]` en el orden de `nombres_keypoints` y el `eje` al que pertenece), `pasajeros` (polígonos de las
+  máscaras de M4, sin recortes ni datos de rostro) y `placa.caja` (rectángulo de M1). Los demás campos no cambian.
   - **M1**: lectura restringida a formato boliviano (`123ABC` / `1234ABC`).
   - **M2**: vehículo principal = el que contiene el centro de la placa leída; sin placa, el más grande y centrado con
     confianza ≥ 0.40.

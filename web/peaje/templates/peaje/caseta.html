@@ -15,6 +15,12 @@
       {% icono "camara" %}<span id="indicacion-texto">Cámara detenida</span>
     </div>
     <div class="video-chip en-vivo">EN VIVO</div>
+    <div id="capas" class="capas" role="group" aria-label="Capas sobre el video">
+      <button type="button" data-capa="vehiculo" aria-pressed="true">Vehículo</button>
+      <button type="button" data-capa="llantas" aria-pressed="true">Llantas</button>
+      <button type="button" data-capa="pasajeros" aria-pressed="true">Pasajeros</button>
+      <button type="button" data-capa="placa" aria-pressed="true">Placa</button>
+    </div>
     <label id="zoom-caja" class="zoom-caja" hidden><span class="visualmente-oculto">Zoom de la cámara</span>
       <input id="zoom" type="range" min="1" max="2" step="0.1" value="1"><span id="zoom-valor" class="num">1.0×</span></label>
   </div>
@@ -144,8 +150,84 @@
     $("ultimo-error-caja").hidden = false;
   }
 
-  // --- Cajas sobre el video (coordenadas del frame enviado → pantalla; el frame es lo visible del video) ---
+  // --- Formas sobre el video: lo que detecta cada modelo ---------------------------------------------
+  // Vehículo (M2): polígono de su máscara · Llantas (M3): keypoints y eje · Pasajeros (M4): silueta opaca ·
+  // Placa (M1): rectángulo. Coordenadas del frame enviado → pantalla con el mismo encuadre que object-fit: cover
+  // (vale en vertical y en horizontal). Cada capa conserva su última forma y se desvanece suave si el frame
+  // siguiente no la trae (no parpadea). Sin `formas` (servidor de inferencia anterior) se dibujan las cajas.
+  // Orden de dibujo: las siluetas tapan al vehículo; llantas y placa van encima (no revelan rostros).
+  var CAPAS = ["vehiculo", "pasajeros", "llantas", "placa"];
+  var AZUL_NOCHE = "#0a1430", AZUL_CLARO = "#9db4ff", RELLENO_VEHICULO = "rgba(30, 58, 138, 0.30)";
+  var KPT_CONF = 0.5, ENTRADA_MS = 120, SALIDA_MS = 600, CLAVE_CAPAS = "iap-capas-caseta";
+  var capasVisibles = leerCapas();
+  var capa = {};
+  CAPAS.forEach(function (c) { capa[c] = { datos: null, ancho: 0, alto: 0, alfa: 0, objetivo: 0 }; });
+  var animacion = null, ultimoT = 0;
+
+  function leerCapas() {
+    var v = { vehiculo: true, llantas: true, pasajeros: true, placa: true };
+    try { var g = JSON.parse(localStorage.getItem(CLAVE_CAPAS) || "{}"); Object.keys(v).forEach(function (k) {
+      if (typeof g[k] === "boolean") v[k] = g[k]; }); } catch (e) { /* sin almacenamiento: todas activas */ }
+    return v;
+  }
+
+  function formasDe(lec) {
+    if (!lec) return {};
+    var f = lec.formas, placaLeida = lec.caja_placa ? { caja: lec.caja_placa, texto: lec.placa } : null;
+    if (!f) {  // servidor de inferencia sin formas: cajas
+      return {
+        vehiculo: lec.caja_vehiculo ? { caja: lec.caja_vehiculo, etiqueta: lec.categoria } : null,
+        llantas: (lec.cajas_llantas || []).length ? lec.cajas_llantas.map(function (c) { return { caja: c }; }) : null,
+        placa: placaLeida
+      };
+    }
+    var v = f.vehiculo;
+    return {
+      vehiculo: v && (v.poligono || v.caja) ? { poligono: v.poligono, caja: v.caja, etiqueta: lec.categoria || v.categoria } : null,
+      llantas: (f.llantas || []).length ? f.llantas : null,
+      pasajeros: (f.pasajeros || []).length ? { lista: f.pasajeros, n: lec.pasajeros != null ? lec.pasajeros : f.pasajeros.length } : null,
+      placa: placaLeida || (f.placa && f.placa.caja ? { caja: f.placa.caja, texto: f.placa.texto } : null)
+    };
+  }
+
+  // Llega un frame: las capas que trae se muestran (pasajeros al instante: nunca dejar rostros a medias);
+  // las que no trae se desvanecen.
   function dibujarCajas(lec, anchoFrame, altoFrame) {
+    var nuevas = formasDe(lec);
+    CAPAS.forEach(function (c) {
+      var e = capa[c];
+      if (nuevas[c] && anchoFrame && altoFrame) {
+        e.datos = nuevas[c]; e.ancho = anchoFrame; e.alto = altoFrame; e.objetivo = 1;
+        if (c === "pasajeros") e.alfa = 1;
+      } else {
+        e.objetivo = 0;
+      }
+    });
+    arrancar();
+  }
+
+  // Sin datos (error, giro, cámara detenida): todo se desvanece; `ya` lo borra sin animación.
+  function limpiarCajas(ya) {
+    CAPAS.forEach(function (c) { capa[c].objetivo = 0; if (ya) { capa[c].alfa = 0; capa[c].datos = null; } });
+    if (ya) pintar(); else arrancar();
+  }
+
+  function arrancar() { if (!animacion) { ultimoT = 0; animacion = requestAnimationFrame(animar); } }
+
+  function animar(t) {
+    var dt = ultimoT ? Math.min(100, t - ultimoT) : 16, activo = false;
+    ultimoT = t;
+    CAPAS.forEach(function (c) {
+      var e = capa[c], paso = dt / (e.objetivo > e.alfa ? ENTRADA_MS : SALIDA_MS);
+      e.alfa = e.objetivo > e.alfa ? Math.min(e.objetivo, e.alfa + paso) : Math.max(e.objetivo, e.alfa - paso);
+      if (e.alfa === 0 && e.objetivo === 0) e.datos = null;
+      if (e.alfa !== e.objetivo) activo = true;
+    });
+    pintar();
+    animacion = activo ? requestAnimationFrame(animar) : null;
+  }
+
+  function pintar() {
     var w = cajas.clientWidth, h = cajas.clientHeight, ctx = cajas.getContext("2d");
     var dpr = window.devicePixelRatio || 1;
     if (cajas.width !== Math.round(w * dpr) || cajas.height !== Math.round(h * dpr)) {
@@ -153,33 +235,125 @@
     }
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
-    if (!lec || !anchoFrame || !altoFrame) return;
-    var escala = Math.max(w / anchoFrame, h / altoFrame);  // mismo encuadre que object-fit: cover
-    var dx = (w - anchoFrame * escala) / 2, dy = (h - altoFrame * escala) / 2;
-    function caja(c, color, etiqueta, grosor) {
-      if (!c) return;
-      var x = dx + c[0] * escala, y = dy + c[1] * escala;
-      var bw = (c[2] - c[0]) * escala, bh = (c[3] - c[1]) * escala;
-      ctx.lineWidth = grosor; ctx.strokeStyle = color; ctx.strokeRect(x, y, bw, bh);
-      if (!etiqueta) return;
-      ctx.font = "700 13px Inter, system-ui, sans-serif";
-      var tw = ctx.measureText(etiqueta).width + 10, ty = y >= 20 ? y - 20 : y;
-      ctx.fillStyle = color; ctx.fillRect(x - grosor / 2, ty, tw, 20);
-      ctx.fillStyle = "#fff"; ctx.fillText(etiqueta, x + 5 - grosor / 2, ty + 14);
-    }
-    if (lec.caja_vehiculo) {
-      var etiqueta = (lec.categoria || "") + (lec.ejes != null ? " · " + lec.ejes + " ejes" : "");
-      caja(lec.caja_vehiculo, "#2b4fd8", etiqueta, 3);
-    }
-    (lec.cajas_llantas || []).forEach(function (c) { caja(c, "#ea580c", "", 2); });
-    (lec.cajas_placas || []).forEach(function (c) {
-      var esLeida = lec.caja_placa && c.join() === lec.caja_placa.join();
-      if (!esLeida) caja(c, "#f59e0b", "", 2);
+    CAPAS.forEach(function (c) {
+      var e = capa[c];
+      if (!e.datos || e.alfa <= 0 || !capasVisibles[c]) return;
+      var escala = Math.max(w / e.ancho, h / e.alto);  // mismo encuadre que object-fit: cover
+      var m = { escala: escala, dx: (w - e.ancho * escala) / 2, dy: (h - e.alto * escala) / 2 };
+      ctx.save();
+      ctx.globalAlpha = e.alfa;
+      ctx.lineJoin = "miter";
+      DIBUJAR[c](ctx, e.datos, m);
+      ctx.restore();
     });
-    if (lec.caja_placa) caja(lec.caja_placa, "#16a34a", lec.placa || "", 3);
   }
 
-  function limpiarCajas() { dibujarCajas(null); }
+  function pt(m, x, y) { return [m.dx + x * m.escala, m.dy + y * m.escala]; }
+
+  function trazo(ctx, puntos, m) {
+    puntos.forEach(function (p, i) { var q = pt(m, p[0], p[1]); if (i) ctx.lineTo(q[0], q[1]); else ctx.moveTo(q[0], q[1]); });
+    ctx.closePath();
+  }
+
+  function rect(ctx, c, m) {
+    var a = pt(m, c[0], c[1]), b = pt(m, c[2], c[3]);
+    ctx.rect(a[0], a[1], b[0] - a[0], b[1] - a[1]);
+  }
+
+  // Contorno azul noche de 3 px con un borde blanco fino (1 px a cada lado) para verse sobre fondos oscuros.
+  function contornoDoble(ctx) {
+    ctx.lineWidth = 5; ctx.strokeStyle = "#ffffff"; ctx.stroke();
+    ctx.lineWidth = 3; ctx.strokeStyle = AZUL_NOCHE; ctx.stroke();
+  }
+
+  // Etiqueta recta: fondo azul noche y texto blanco.
+  function etiqueta(ctx, texto, x, y, tam) {
+    if (!texto) return;
+    tam = tam || 13;
+    ctx.font = "700 " + tam + "px Inter, system-ui, sans-serif";
+    var ancho = ctx.measureText(texto).width + 10, alto = tam + 8;
+    var limite = ctx.canvas.width / (window.devicePixelRatio || 1);
+    x = Math.max(0, Math.min(x, limite - ancho));  // nunca cortada por el borde del video
+    var ty = y - alto >= 0 ? y - alto : y;
+    ctx.fillStyle = AZUL_NOCHE; ctx.fillRect(x, ty, ancho, alto);
+    ctx.fillStyle = "#ffffff"; ctx.fillText(texto, x + 5, ty + tam + 2);
+  }
+
+  function esquina(puntos, caja) {
+    if (puntos && puntos.length) {
+      return [Math.min.apply(null, puntos.map(function (p) { return p[0]; })),
+              Math.min.apply(null, puntos.map(function (p) { return p[1]; }))];
+    }
+    return caja ? [caja[0], caja[1]] : null;
+  }
+
+  var DIBUJAR = {
+    vehiculo: function (ctx, v, m) {
+      ctx.beginPath();
+      if (v.poligono) trazo(ctx, v.poligono, m); else if (v.caja) rect(ctx, v.caja, m); else return;
+      ctx.fillStyle = RELLENO_VEHICULO; ctx.fill();
+      contornoDoble(ctx);
+      var e = esquina(v.poligono, v.caja);
+      if (e) { var p = pt(m, e[0], e[1]); etiqueta(ctx, v.etiqueta, p[0], p[1]); }
+    },
+    llantas: function (ctx, llantas, m) {
+      llantas.forEach(function (l) {
+        var kps = (l.keypoints || []).filter(function (k) { return k[2] == null || k[2] >= KPT_CONF; });
+        var c = kps[0] || l.centro || (l.caja ? [(l.caja[0] + l.caja[2]) / 2, (l.caja[1] + l.caja[3]) / 2] : null);
+        if (!c) return;
+        var centro = pt(m, c[0], c[1]);
+        if (!kps.length && l.caja) {  // sin keypoints: caja fina
+          ctx.beginPath(); rect(ctx, l.caja, m); ctx.lineWidth = 1.5; ctx.strokeStyle = AZUL_CLARO; ctx.stroke();
+        }
+        ctx.lineWidth = 1.5; ctx.strokeStyle = AZUL_CLARO;
+        kps.slice(1).forEach(function (k) {  // líneas finas del centro a cada punto
+          var q = pt(m, k[0], k[1]);
+          ctx.beginPath(); ctx.moveTo(centro[0], centro[1]); ctx.lineTo(q[0], q[1]); ctx.stroke();
+        });
+        kps.slice(1).concat([c]).forEach(function (k, i, todos) {  // círculos: el centro (último) más grande
+          var q = pt(m, k[0], k[1]);
+          ctx.beginPath(); ctx.arc(q[0], q[1], i === todos.length - 1 ? 5 : 3, 0, 2 * Math.PI);
+          ctx.fillStyle = AZUL_CLARO; ctx.fill(); ctx.lineWidth = 1.5; ctx.strokeStyle = AZUL_NOCHE; ctx.stroke();
+        });
+        if (l.eje) etiqueta(ctx, String(l.eje), centro[0] + 8, centro[1] - 6, 11);
+      });
+    },
+    pasajeros: function (ctx, p, m) {
+      // Relleno sólido y opaco: tapa a la persona entera (no deja ver rostros).
+      var arriba = null;
+      ctx.fillStyle = AZUL_NOCHE;
+      p.lista.forEach(function (persona) {
+        ctx.beginPath();
+        if (persona.poligonos && persona.poligonos.length) persona.poligonos.forEach(function (pg) { trazo(ctx, pg, m); });
+        else if (persona.caja) rect(ctx, persona.caja, m);
+        ctx.fill();
+        var e = esquina((persona.poligonos || [])[0], persona.caja);
+        if (e && (!arriba || e[1] < arriba[1])) arriba = e;
+      });
+      if (arriba && p.n != null) {
+        var q = pt(m, arriba[0], arriba[1]);
+        etiqueta(ctx, p.n + (p.n === 1 ? " pasajero" : " pasajeros"), q[0], q[1]);
+      }
+    },
+    placa: function (ctx, p, m) {
+      ctx.beginPath(); rect(ctx, p.caja, m);
+      contornoDoble(ctx);
+      var q = pt(m, p.caja[0], p.caja[1]);
+      etiqueta(ctx, p.texto, q[0], q[1] - 3, 14);
+    }
+  };
+
+  // Selector de capas (se recuerda en este navegador).
+  Array.prototype.forEach.call(document.querySelectorAll("#capas [data-capa]"), function (b) {
+    var c = b.getAttribute("data-capa");
+    b.setAttribute("aria-pressed", capasVisibles[c] ? "true" : "false");
+    b.addEventListener("click", function () {
+      capasVisibles[c] = !capasVisibles[c];
+      b.setAttribute("aria-pressed", capasVisibles[c] ? "true" : "false");
+      try { localStorage.setItem(CLAVE_CAPAS, JSON.stringify(capasVisibles)); } catch (e) { /* sin almacenamiento */ }
+      pintar();
+    });
+  });
 
   // --- Cámara: orientación, encuadre y zoom --------------------------------------------------------
   var camaraId = null, zoomActual = null, orientacion = null, reorientando = false, esperaGiro = null;
@@ -317,7 +491,7 @@
     $("indicacion-texto").textContent = motivo || "Cámara detenida";
     $("indicacion").hidden = false;
     modoBoton(false);
-    limpiarCajas();
+    limpiarCajas(true);
     pintarFlujo({});
     pasoMostrado = null; enCaptura = false;
     $("frecuencia").textContent = "–";

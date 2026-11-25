@@ -52,7 +52,8 @@ def _ms(t0):
         "Respuesta: `accion` `sin_placa` | `esperando_confirmacion` | `en_curso` | `registrado` | `fijo` | `salida` | "
         "`error`; `flujo` {etapa, placa, placa_bloqueada, tipo, tipo_texto, tipo_listo, ejes, ejes_listo, pasajeros, "
         "pasajeros_listo, segundos}; `lectura` (resultado de ESTE frame: placa, confianza, categoria, ejes, "
-        "pasajeros, cajas [x1, y1, x2, y2] en píxeles del frame enviado, latencias); `paso` (si se registró o es el "
+        "pasajeros, cajas [x1, y1, x2, y2] en píxeles del frame enviado, `formas` con el polígono del vehículo, "
+        "keypoints y eje de cada llanta, siluetas de pasajeros y la caja de la placa, latencias); `paso` (si se registró o es el "
         "fijo), `mensaje` (texto corto en español), `captura` (evidencia del paso registrado). Si la "
         "inferencia falla responde 502 con `accion: error`."
     ),
@@ -121,6 +122,9 @@ def _paso_frame(request):
         "detalle_ejes": vehiculo.get("detalle_ejes") or "",
         "latencia_inferencia_ms": ms_inferencia,
         "latencia_modelos_ms": vehiculo.get("latencias") or {},
+        # formas reales para dibujar sobre el video (polígono M2, keypoints M3, siluetas M4, caja de placa M1);
+        # null si el servidor de inferencia aún no las manda (se dibujan las cajas)
+        "formas": vehiculo.get("formas"),
     }
     r = flujo.procesar_frame(caseta, lecturas, vehiculo, imagen, usuario=request.user)
     accion, estado_flujo = r["accion"], r["flujo"]

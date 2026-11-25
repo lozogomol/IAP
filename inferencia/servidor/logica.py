@@ -5,12 +5,15 @@ ningún modelo (test_app.py).
 """
 from statistics import mean, median
 
+import cv2
 import numpy as np
 
 import config
 
 # Orden de los 5 puntos de M3 (kpt_shape [5, 3]), verificado sobre fotos con el modelo real.
 KPT_CENTRO, KPT_ABAJO, KPT_ARRIBA, KPT_IZQ, KPT_DER = range(5)
+NOMBRES_KPT = ("centro", "abajo", "arriba", "izquierda", "derecha")
+MAX_PUNTOS_POLIGONO = 60
 
 
 # --- Vehículo principal ------------------------------------------------------------------------------
@@ -111,6 +114,11 @@ def llanta(caja, conf, puntos=None, kpt_conf=config.M3_KPT_CONF):
         "alto": max(1.0, alto),
         "ancho": max(1.0, ancho),
         "puntos": None if pts is None else [[round(float(p[0]), 1), round(float(p[1]), 1)] for p in pts],
+        # keypoints de M3 [x, y, confianza] (nombres en NOMBRES_KPT, mismo orden); sin confianza = 1.0
+        "keypoints": None if pts is None else [
+            [round(float(p[0]), 1), round(float(p[1]), 1), round(float(p[2]) if len(p) >= 3 else 1.0, 3)]
+            for p in pts],
+        "eje": None,
     }
 
 
@@ -149,11 +157,52 @@ def contar_ejes(caja_vehiculo, llantas):
             grupos[-1].append(actual)
         else:
             grupos.append([actual])
+    _asignar_ejes(propias, grupos)
     ejes = max(config.M3_EJES_MIN, len(grupos))
     detalle.update(llantas_lado_cercano=len(cercanas), grupos_llantas=len(grupos),
                    motivo_ejes=f"{len(cercanas)} llantas del lado cercano en {len(grupos)} grupo(s)"
                                + (f"; mínimo {config.M3_EJES_MIN} ejes" if len(grupos) < config.M3_EJES_MIN else ""))
     return ejes, propias, detalle
+
+
+def _asignar_ejes(propias, grupos):
+    """llanta["eje"] = número de eje (1..n, de izquierda a derecha). Las del lado lejano van al eje más cercano en x."""
+    centros = []
+    for n, grupo in enumerate(grupos, 1):
+        for l in grupo:
+            l["eje"] = n
+        centros.append(mean(l["centro"][0] for l in grupo))
+    for l in propias:
+        if l.get("eje") is None:
+            l["eje"] = min(range(len(centros)), key=lambda i: abs(centros[i] - l["centro"][0])) + 1
+
+
+# --- Formas para dibujar en el punto de cobro -------------------------------------------------------------
+
+def poligonos(mascara, origen=(0, 0), max_puntos=MAX_PUNTOS_POLIGONO, area_min=25, solo_mayor=False):
+    """Contornos de una máscara binaria como polígonos [[x, y], ...] en coordenadas de la imagen completa.
+
+    Cada contorno se simplifica con approxPolyDP (tolerancia creciente) hasta tener <= max_puntos puntos.
+    `solo_mayor`: solo el contorno de mayor área (el vehículo). Sin máscara o vacía: [].
+    """
+    if mascara is None or not np.any(mascara):
+        return []
+    contornos, _ = cv2.findContours(np.ascontiguousarray(mascara, dtype=np.uint8), cv2.RETR_EXTERNAL,
+                                    cv2.CHAIN_APPROX_SIMPLE)
+    contornos = [c for c in contornos if cv2.contourArea(c) >= area_min]
+    if solo_mayor and contornos:
+        contornos = [max(contornos, key=cv2.contourArea)]
+    ox, oy = origen
+    salida = []
+    for c in sorted(contornos, key=cv2.contourArea, reverse=True):
+        eps = 0.002 * cv2.arcLength(c, True)
+        simple = cv2.approxPolyDP(c, eps, True)
+        while len(simple) > max_puntos:
+            eps *= 1.5
+            simple = cv2.approxPolyDP(c, eps, True)
+        if len(simple) >= 3:
+            salida.append([[int(p[0][0]) + ox, int(p[0][1]) + oy] for p in simple])
+    return salida
 
 
 # --- M4: pasajeros y privacidad ---------------------------------------------------------------------

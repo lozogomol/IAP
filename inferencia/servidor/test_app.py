@@ -108,6 +108,8 @@ class ServidorTests(unittest.TestCase):
         self.assertEqual(set(d["latencia_ms"]), {"total", "m1", "m2", "m3", "m4"})
         self.assertEqual(set(d["cajas"]), {"placa", "vehiculo", "placas", "llantas", "personas"})
         self.assertIn("motivo_ejes", d["detalle"])
+        self.assertEqual(d["formas"], {"vehiculo": None, "llantas": [], "pasajeros": [], "placa": None,
+                                       "nombres_keypoints": ["centro", "abajo", "arriba", "izquierda", "derecha"]})
 
     def test_formato_de_cada_placa(self):
         """Con un detector simulado que devuelve una caja, el OCR real lee el recorte y arma el contrato."""
@@ -135,6 +137,21 @@ class ServidorTests(unittest.TestCase):
         self.assertIsInstance(d["pasajeros"], int)
         self.assertTrue(all(isinstance(d["latencia_ms"][k], int) for k in ("total", "m1", "m2", "m3", "m4")))
         self.assertTrue(d["imagen"].startswith("data:image/jpeg;base64,"))
+        # formas para el punto de cobro: polígono del vehículo (M2), keypoints de llantas (M3), siluetas (M4)
+        f = d["formas"]
+        alto, ancho = cv2.imdecode(np.frombuffer(_foto_bus(), np.uint8), cv2.IMREAD_COLOR).shape[:2]
+        pol = f["vehiculo"]["poligono"]
+        self.assertEqual((f["vehiculo"]["categoria"], f["vehiculo"]["caja"]), ("bus", d["caja_vehiculo"]))
+        self.assertTrue(3 <= len(pol) <= logica.MAX_PUNTOS_POLIGONO)
+        self.assertTrue(all(0 <= x < ancho and 0 <= y < alto for x, y in pol))
+        self.assertEqual(len(f["llantas"]), d["llantas_detectadas"])
+        for l in f["llantas"]:
+            self.assertTrue(l["keypoints"] is None or all(len(k) == 3 for k in l["keypoints"]))
+            self.assertIn(l["eje"], (None, 1, 2, 3))
+        self.assertEqual(len(f["pasajeros"]), len(d["cajas"]["personas"]))
+        for persona in f["pasajeros"]:  # solo números: contornos y caja, nunca imagen ni datos de rostro
+            self.assertEqual(set(persona), {"caja", "poligonos"})
+            self.assertTrue(all(isinstance(v, int) for pg in persona["poligonos"] for pt in pg for v in pt))
         # privacidad: hay personas → la evidencia viene con ellas cubiertas por color sólido
         self.assertTrue(d["cajas"]["personas"])
         evidencia = _decodificar_data_url(d["evidencia"])
@@ -297,6 +314,52 @@ class EjesTests(unittest.TestCase):
         self.assertIsNone(logica.contar_ejes(self.VEH, [])[0])
 
 
+class FormasTests(unittest.TestCase):
+    def test_poligono_de_un_rectangulo_con_origen(self):
+        m = np.zeros((100, 200), np.uint8)
+        m[20:60, 30:150] = 1
+        (pol,) = logica.poligonos(m, origen=(10, 5))
+        self.assertEqual(sorted(map(tuple, pol)), sorted([(40, 25), (40, 64), (159, 64), (159, 25)]))
+
+    def test_simplifica_a_60_puntos_y_vacia_es_lista_vacia(self):
+        m = np.zeros((600, 600), np.uint8)
+        cv2.circle(m, (300, 300), 250, 1, -1)
+        for y in range(60, 540, 6):  # borde dentado: muchos vértices antes de simplificar
+            m[y:y + 3, 40:56] = 0
+        (pol,) = logica.poligonos(m)
+        self.assertLessEqual(len(pol), logica.MAX_PUNTOS_POLIGONO)
+        self.assertGreaterEqual(len(pol), 8)
+        self.assertEqual(logica.poligonos(None), [])
+        self.assertEqual(logica.poligonos(np.zeros((10, 10), np.uint8)), [])
+
+    def test_solo_mayor_y_varias_partes(self):
+        m = np.zeros((100, 100), np.uint8)
+        m[10:30, 10:30] = 1
+        m[50:95, 50:95] = 1
+        self.assertEqual(len(logica.poligonos(m)), 2)
+        (mayor,) = logica.poligonos(m, solo_mayor=True)
+        self.assertTrue(all(x >= 50 for x, _ in mayor))
+
+    def test_keypoints_con_confianza_y_nombres(self):
+        l = _llanta5(100, 200, 40)
+        self.assertEqual(len(l["keypoints"]), len(logica.NOMBRES_KPT))
+        self.assertEqual(l["keypoints"][0], [100, 200, 0.9])
+        self.assertIsNone(logica.llanta([0, 0, 10, 10], 0.8)["keypoints"])
+
+    def test_cada_llanta_sabe_su_eje(self):
+        """Tándem fusionado = mismo eje; las del lado lejano van al eje más cercano en x."""
+        llantas = [_llanta5(100, 350, 80), _llanta5(600, 350, 80), _llanta5(640, 350, 80), _llanta5(900, 350, 80),
+                   _llanta5(130, 320, 40)]
+        ejes, propias, _ = logica.contar_ejes([0, 0, 1000, 400], llantas)
+        self.assertEqual(ejes, 3)
+        self.assertEqual([l["eje"] for l in llantas], [1, 2, 2, 3, 1])
+
+    def test_vista_frontal_sin_eje(self):
+        llantas = [_llanta5(150, 350, 80, ancho=20), _llanta5(850, 350, 80, ancho=22)]
+        logica.contar_ejes([0, 0, 1000, 400], llantas)
+        self.assertEqual([l["eje"] for l in llantas], [None, None])
+
+
 class PasajerosYPrivacidadTests(unittest.TestCase):
     VEH = [100, 100, 300, 300]
 
@@ -338,6 +401,11 @@ class PasajerosYPrivacidadTests(unittest.TestCase):
                 headers={"X-API-Token": TOKEN}, params={"anotada": "true"}).json()
         self.assertEqual((d["categoria"], d["ejes"], d["llantas_detectadas"], d["pasajeros"]), ("auto", 2, 2, 1))
         self.assertEqual(d["cajas"]["personas"], [[200, 150, 260, 260]])
+        (silueta,) = d["formas"]["pasajeros"]
+        self.assertEqual(silueta["caja"], [200, 150, 260, 260])
+        self.assertEqual(sorted(map(tuple, silueta["poligonos"][0])),
+                         sorted([(200, 150), (200, 259), (259, 259), (259, 150)]))  # máscara en la imagen completa
+        self.assertEqual([l["eje"] for l in d["formas"]["llantas"]], [1, 2])
         for clave in ("evidencia", "imagen"):
             cubierta = _decodificar_data_url(d[clave])[170:240, 210:250].astype(float)
             self.assertTrue(np.allclose(cubierta.mean(axis=(0, 1)), config.COLOR_PRIVACIDAD, atol=10), clave)

@@ -18,7 +18,15 @@ Respuesta de /inferir (confianzas en 0..100, cajas [x1, y1, x2, y2] en píxeles 
                  "categoria", "confianza_categoria", "caja_vehiculo"}],   cada placa con SU vehículo
      "caja_vehiculo": [...], "milisegundos": 42,                     compatibilidad
      "evidencia": "data:image/jpeg;base64,..." | null,              frame con las personas cubiertas (si hubo)
+     "formas": {                                                     para dibujar en el punto de cobro:
+        "vehiculo": {"categoria", "caja", "poligono": [[x, y], ...] | null} | null,   contorno de la máscara M2
+        "llantas": [{"caja", "confianza", "centro", "eje": 1 | null, "keypoints": [[x, y, conf], ...] | null}],
+        "nombres_keypoints": ["centro", "abajo", "arriba", "izquierda", "derecha"],   orden de los keypoints de M3
+        "pasajeros": [{"caja", "poligonos": [[[x, y], ...], ...]}],   máscaras M4 (sin recortes ni datos de rostro)
+        "placa": {"caja", "texto"} | null},                            M1: detección (rectángulo), no segmentación
      "imagen": "data:image/jpeg;base64,..."}                        solo con ?anotada=true
+
+Polígonos simplificados con approxPolyDP (máx. ~60 puntos). Los campos anteriores no cambian.
 
 Vehículo principal = el que contiene el centro de la placa leída; sin placa, el más grande y centrado con confianza
 >= 0.40. `ejes` = null si no hay llantas, si es vista frontal/posterior o si M3 no está cargado; nunca se inventa.
@@ -314,6 +322,24 @@ def _publica(llanta):
     return {k: llanta[k] for k in ("caja", "confianza", "centro", "puntos")}
 
 
+def _formas(vehiculo, llantas, personas, leida):
+    """Formas reales de cada modelo, en coordenadas de la imagen recibida, para dibujar sobre el video.
+
+    PRIVACIDAD: de las personas solo salen los contornos de su máscara (para taparlas en pantalla) y su caja;
+    nunca recortes, píxeles ni datos de rostro."""
+    poligono = logica.poligonos(vehiculo.get("mascara"), solo_mayor=True) if vehiculo else []
+    return {
+        "vehiculo": {"categoria": vehiculo["categoria"], "caja": vehiculo["caja"],
+                     "poligono": poligono[0] if poligono else None} if vehiculo else None,
+        "llantas": [{"caja": l["caja"], "confianza": round(l["confianza"] * 100, 1), "centro": l["centro"],
+                     "eje": l.get("eje"), "keypoints": l.get("keypoints")} for l in llantas],
+        "nombres_keypoints": list(logica.NOMBRES_KPT),
+        "pasajeros": [{"caja": p["caja"], "poligonos": logica.poligonos(p.get("mascara"), p.get("origen", (0, 0)))}
+                      for p in personas],
+        "placa": {"caja": leida["caja"], "texto": leida["texto"]} if leida else None,
+    }
+
+
 def analizar(img):
     """Corre M1 → M2 → (M3, M4 sobre el recorte del vehículo principal). Devuelve (respuesta, extras)."""
     lat = {}
@@ -371,6 +397,7 @@ def analizar(img):
         },
         "detalle": detalle,
         "placas": placas,
+        "formas": _formas(vehiculo, llantas, personas, leida),
     }
     return respuesta, {"vehiculo": vehiculo, "llantas": llantas, "personas": personas}
 

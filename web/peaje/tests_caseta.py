@@ -785,3 +785,78 @@ class TarifaSiempreTests(TestCase):
         c = cobro.consultar_placa("7777XYZ")["ultimo_paso"]
         self.assertEqual((c["tarifa"], c["resultado_texto"], c["ejes_texto"]),
                          ("4.00", "No cobrado: placa no registrada", "2 (estimado)"))
+
+
+JPEG_REAL = Path(settings.BASE_DIR).parent / "docs" / "metricas" / "m2" / "labels.jpg"
+
+
+@override_settings(DEBUG=False, MEDIA_ROOT=tempfile.mkdtemp(prefix="iap-test-"), CLOUDINARY_URL="", PUSHER_APP_ID="")
+class FrameProduccionTests(TestCase):
+    """Reproduce el 500 de producción: DEBUG=False, JPEG real, sesión web + CSRF y el flujo completo por la API."""
+
+    def setUp(self):
+        self.caseta = Caseta.objects.get(nombre="Peaje IAP")  # la caseta del punto de cobro (migración 0004)
+        self.client = self.client_class(enforce_csrf_checks=True)
+        entrar(self.client, Usuario.objects.get(email_google="lozogomol@gmail.com"))
+        self.client.get("/caseta")
+        self.csrf = self.client.cookies["csrftoken"].value
+        self.jpeg = JPEG_REAL.read_bytes()
+        self.assertEqual(self.jpeg[:2], b"\xff\xd8")
+
+    def _frame(self, placa=None, categoria="", ejes=None, pasajeros=None, confianza=0.9):
+        lecturas = [_lectura(placa, confianza, categoria=categoria, ejes=ejes)] if placa else []
+        vehiculo = {**SIN_VEHICULO, "clase": categoria, "caja_vehiculo": [0, 0, 10, 10] if categoria else None,
+                    "ejes": ejes, "pasajeros": pasajeros}
+        with mock.patch(INFERIR, return_value=(lecturas, 80, vehiculo)):
+            r = self.client.post("/api/v1/pasos/frame",
+                                 {"imagen": SimpleUploadedFile("frame.jpg", self.jpeg, content_type="image/jpeg"),
+                                  "caseta_id": self.caseta.id}, HTTP_X_CSRFTOKEN=self.csrf)
+        self.assertEqual(r.status_code, 200, r.content[:300])
+        self.assertEqual(r["Content-Type"], "application/json")
+        return r.json()
+
+    def test_flujo_completo_sin_500(self):
+        self.assertEqual(Tarifa.objects.count(), 21)
+        # placa nueva con tipo, ejes y pasajeros → se completa y cobra en el segundo frame
+        self.assertEqual(self._frame("3876LBD", "camion", 3, 2)["accion"], "en_curso")
+        d = self._frame("3876LBD", "camion", 3, 2)
+        self.assertEqual((d["accion"], d["paso"]["tarifa"], d["paso"]["pasajeros"]), ("registrado", "10.00", 2))
+        # misma placa y frames sin placa → resultado fijo
+        self.assertEqual(self._frame("3876LBD", "camion", 3, 2)["accion"], "fijo")
+        self.assertEqual(self._frame()["accion"], "fijo")
+        # placa distinta sin tipo ni ejes → en curso; a los 6 s se completa con los respaldos
+        self.assertEqual(self._frame("6999ZZZ")["accion"], "en_curso")
+        PasoEnCurso.objects.filter(caseta=self.caseta).update(bloqueada_at=timezone.now() - timedelta(seconds=7))
+        d = self._frame()
+        self.assertEqual((d["accion"], d["paso"]["categoria"], d["paso"]["ejes_texto"], d["paso"]["estado"]),
+                         ("registrado", "auto", "2 (estimado)", "no_registrada"))
+        self.assertEqual(self._frame()["accion"], "fijo")
+        self.assertEqual(Paso.objects.count(), 2)
+
+    def test_la_fila_de_la_caseta_se_bloquea_sin_outer_join_en_postgresql(self):
+        """La causa del 500: SELECT … LEFT OUTER JOIN … FOR UPDATE (PostgreSQL lo rechaza; SQLite lo ignora)."""
+        from django.db.backends.postgresql.base import DatabaseWrapper
+        pg = DatabaseWrapper({**settings.DATABASES["default"], "ENGINE": "django.db.backends.postgresql"})
+        pg.get_autocommit = lambda: False  # compila el SQL sin conectarse
+        sql = flujo.fila_bloqueada().filter(caseta=self.caseta).query.get_compiler(connection=pg).as_sql()[0]
+        self.assertIn("FOR UPDATE", sql)
+        self.assertNotIn("JOIN", sql)
+
+    def test_error_inesperado_responde_json_y_queda_en_el_log(self):
+        with mock.patch("peaje.api.flujo.procesar_frame", side_effect=RuntimeError("falla de prueba")), \
+                mock.patch(INFERIR, return_value=([], 80, SIN_VEHICULO)), \
+                self.assertLogs("peaje.caseta", level="ERROR") as logs:
+            r = self.client.post("/api/v1/pasos/frame",
+                                 {"imagen": SimpleUploadedFile("frame.jpg", self.jpeg, content_type="image/jpeg"),
+                                  "caseta_id": self.caseta.id}, HTTP_X_CSRFTOKEN=self.csrf)
+        self.assertEqual(r.status_code, 500)
+        self.assertEqual((r.json()["accion"], r.json()["mensaje"]),
+                         ("error", "Error interno del servidor al procesar el frame."))
+        self.assertIn("RuntimeError: falla de prueba", logs.output[0])  # con traceback
+
+    def test_logging_de_errores_en_consola(self):
+        loggers = settings.LOGGING["loggers"]
+        self.assertEqual((loggers["django.request"]["level"], loggers["django.request"]["handlers"]),
+                         ("ERROR", ["consola"]))
+        self.assertEqual(settings.LOGGING["handlers"]["consola"]["class"], "logging.StreamHandler")
+        self.assertIn("consola", loggers["peaje"]["handlers"])

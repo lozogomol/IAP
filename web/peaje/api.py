@@ -58,6 +58,16 @@ def _ms(t0):
 @api_view(["POST"])
 @parser_classes([MultiPartParser, FormParser])
 def paso_frame(request):
+    # Nunca un 500 genérico de Django: el error queda en el log con traceback y el cliente recibe JSON.
+    try:
+        return _paso_frame(request)
+    except Exception:  # noqa: BLE001
+        log.exception("frame: error inesperado (caseta_id=%s)", request.data.get("caseta_id"))
+        return Response({"accion": "error", "mensaje": "Error interno del servidor al procesar el frame.",
+                         "lectura": None, "paso": None}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+def _paso_frame(request):
     t0 = time.perf_counter()
     cid = str(request.data.get("caseta_id", ""))
     caseta = Caseta.objects.filter(pk=int(cid)).first() if cid.isdigit() else None

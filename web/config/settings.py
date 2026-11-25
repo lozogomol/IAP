@@ -129,14 +129,19 @@ PUSHER_CLUSTER = os.environ.get("PUSHER_CLUSTER", "us2")
 CLOUDINARY_URL = os.environ.get("CLOUDINARY_URL", "")
 MEDIA_ROOT = BASE_DIR / "media"
 
-# --- Log: cada frame del modo caseta queda en la consola del servidor con su acción ---
+# --- Log en la consola (Render la muestra), también con DEBUG=False ---------------------------------------------
+# django.request: los 500 con su traceback completo (sin esto, con DEBUG=False Django solo los manda por correo a
+# ADMINS y en la consola no aparece nada). peaje: cada frame del modo caseta con su acción, y sus errores.
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
     "formatters": {"simple": {"format": "%(asctime)s %(levelname)s %(name)s: %(message)s"}},
     "handlers": {"consola": {"class": "logging.StreamHandler", "formatter": "simple"}},
-    # En los tests solo WARNING para no ensuciar la salida (assertLogs sigue funcionando).
-    "loggers": {"peaje": {"handlers": ["consola"],
-                          "level": "WARNING" if "test" in sys.argv else os.environ.get("IAP_LOG_NIVEL", "INFO"),
-                          "propagate": False}},
+    "loggers": {
+        "django.request": {"handlers": ["consola"], "level": "ERROR", "propagate": False},
+        # En los tests solo WARNING para no ensuciar la salida (assertLogs sigue funcionando).
+        "peaje": {"handlers": ["consola"],
+                  "level": "WARNING" if "test" in sys.argv else os.environ.get("IAP_LOG_NIVEL", "INFO"),
+                  "propagate": False},
+    },
 }

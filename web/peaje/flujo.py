@@ -219,12 +219,22 @@ def procesar_frame(caseta, lecturas, vehiculo, imagen, usuario=None, ahora=None)
     """
     ahora = ahora or timezone.now()
     with transaction.atomic():
-        estado, _ = PasoEnCurso.objects.select_for_update().select_related("paso").get_or_create(caseta=caseta)
-        try:
-            return _avanzar(estado, caseta, lecturas, vehiculo, imagen, usuario, ahora)
-        finally:
-            estado.ultimo_frame_at = ahora
-            estado.save()
+        estado, _ = fila_bloqueada().get_or_create(caseta=caseta)
+        resultado = _avanzar(estado, caseta, lecturas, vehiculo, imagen, usuario, ahora)
+        # Solo si todo salió bien: si _avanzar falla, la transacción se deshace y el error original queda en el log
+        # (un save() en un finally lo taparía en PostgreSQL con "current transaction is aborted").
+        estado.ultimo_frame_at = ahora
+        estado.save()
+        return resultado
+
+
+def fila_bloqueada():
+    """Consulta que bloquea la fila de la caseta (serializa sus frames).
+
+    Sin select_related("paso"): `paso` es una FK nullable y PostgreSQL rechaza FOR UPDATE sobre un LEFT OUTER JOIN
+    ("FOR UPDATE cannot be applied to the nullable side of an outer join"). El paso fijo se carga aparte, sin bloqueo.
+    """
+    return PasoEnCurso.objects.select_for_update(of=("self",))
 
 
 def _avanzar(estado, caseta, lecturas, vehiculo, imagen, usuario, ahora):

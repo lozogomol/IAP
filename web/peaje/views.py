@@ -349,6 +349,7 @@ def estado(request):
         status = 503
     asistente = agente.estado_asistente()
     datos["asistente"] = asistente
+    datos["tiempo_real"] = tiempo_real.estado()
     if request.GET.get("format") == "json":
         return JsonResponse(datos, status=status)
     modelos = []
@@ -357,4 +358,5 @@ def estado(request):
         modelos = [(nombre, *ESTADOS_MODELO.get(srv.get(clave, "pendiente"), ("Desconocido", "aviso")))
                    for clave, nombre in MODELOS]
     return render(request, "peaje/estado.html", {"datos": datos, "modelos": modelos, "bd_ok": datos["base_datos"] == "ok",
-                                                 "asistente": asistente}, status=status)
+                                                 "asistente": asistente, "tiempo_real": datos["tiempo_real"]},
+                  status=status)

@@ -216,6 +216,8 @@
   <script src="https://js.pusher.com/8.2.0/pusher.min.js"></script>
   <script>
     // Tiempo real: un solo canal privado; los eventos se reemiten como CustomEvent para cada página.
+    // IAP.tiempoReal es true SOLO con el canal suscrito; si la conexión cae o se rechaza, avisa con
+    // "iap:tiempo-real" para que el panel vuelva al sondeo de respaldo (y lo detenga al reconectar).
     (function () {
       if (!window.Pusher) return;
       var cfg = JSON.parse(document.getElementById("pusher-config").textContent);
@@ -223,8 +225,18 @@
         cluster: cfg.cluster,
         channelAuthorization: { endpoint: "/pusher/auth", transport: "ajax", headers: { "X-CSRFToken": csrfToken() } }
       });
+      function modo(activo) {
+        if (IAP.tiempoReal === activo) return;
+        IAP.tiempoReal = activo;
+        document.dispatchEvent(new CustomEvent("iap:tiempo-real", { detail: { activo: activo } }));
+      }
       var canal = cliente.subscribe(cfg.canal);
-      IAP.tiempoReal = true;
+      canal.bind("pusher:subscription_succeeded", function () { modo(true); });
+      canal.bind("pusher:subscription_error", function () { modo(false); });
+      cliente.connection.bind("state_change", function (s) {
+        if (s.current === "connected" && canal.subscribed) modo(true);
+        else if (s.current !== "connected") modo(false);
+      });
       canal.bind("paso", function (d) {
         if (d.alerta) IAP.mostrarAlerta(d);
         document.dispatchEvent(new CustomEvent("iap:paso", { detail: d }));

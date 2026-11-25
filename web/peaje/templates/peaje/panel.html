@@ -174,12 +174,22 @@
   pintarLista(datos.pasos);
   pintarTipos(datos.kpis.por_tipo);
   pintarGrafica(datos.grafica);
-  if (window.IAP && IAP.tiempoReal) {
-    $("modo").textContent = "En vivo"; $("modo").classList.remove("consulta");
-  } else {
-    $("modo").textContent = "Cada " + (POLL_MS / 1000) + " s";
-    setInterval(consultar, POLL_MS);
+  // Pusher conectado: eventos en vivo y sin sondeo. Sin Pusher (o con la conexión caída): sondeo cada 10 s.
+  var sondeo = null;
+  function modoTiempoReal(enVivo) {
+    if (enVivo) {
+      clearInterval(sondeo); sondeo = null;
+      $("modo").textContent = "En vivo"; $("modo").classList.remove("consulta");
+    } else if (!sondeo) {
+      sondeo = setInterval(consultar, POLL_MS);
+      $("modo").textContent = "Cada " + (POLL_MS / 1000) + " s"; $("modo").classList.add("consulta");
+    }
   }
+  document.addEventListener("iap:tiempo-real", function (e) {
+    if (e.detail.activo) consultar();  // se pone al día con lo que pasó mientras estaba desconectado
+    modoTiempoReal(e.detail.activo);
+  });
+  modoTiempoReal(!!(window.IAP && IAP.tiempoReal));
 })();
 </script>
 {% endblock %}

@@ -2,7 +2,7 @@
 {% load iconos %}
 {% block titulo %}Estado del sistema{% endblock %}
 {% block h1 %}Estado del sistema{% endblock %}
-{% block subtitulo %}Web, base de datos, modelos de inferencia y asistente IA{% endblock %}
+{% block subtitulo %}Web, base de datos, inferencia, asistente IA y tiempo real{% endblock %}
 {% block acciones %}<a class="boton" href="/estado">{% icono "refrescar" %}Comprobar</a>{% endblock %}
 {% block contenido %}
 
@@ -34,6 +34,15 @@
     {% else %}
       <div class="servicio-cab">{% icono "chip" %}<h2 id="s-ia">Inferencia</h2><span class="luz aviso" aria-hidden="true"></span></div>
       <span class="texto-estado aviso">{{ datos.inferencia|capfirst }}</span>
+    {% endif %}
+  </section>
+
+  <section class="tarjeta servicio" aria-labelledby="s-tiempo">
+    <div class="servicio-cab">{% icono "actividad" %}<h2 id="s-tiempo">Tiempo real</h2><span class="luz {% if tiempo_real.modo == "pusher" %}ok{% else %}aviso{% endif %}" aria-hidden="true"></span></div>
+    {% if tiempo_real.modo == "pusher" %}
+      <span class="texto-estado ok">Tiempo real: Pusher conectado</span>
+    {% else %}
+      <span class="texto-estado aviso">Tiempo real: respaldo por sondeo ({{ tiempo_real.motivo }})</span>
     {% endif %}
   </section>
 

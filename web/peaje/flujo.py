@@ -3,11 +3,16 @@
 Máquina de estados por caseta (fila PasoEnCurso), alimentada por los frames de la cámara:
 
   ESPERA      Sin vehículo. Cada lectura de placa vota (2 lecturas iguales en 4 s o 1 con confianza >= 0.80).
-  CAPTURA     Placa confirmada y BLOQUEADA: no cambia aunque otros frames lean otra cosa. Se acumulan por mayoría
-              el TIPO (M2), los EJES (M3) y los PASAJEROS (M4) de ese vehículo. En cuanto hay tipo y ejes por
-              mayoría, o a los 6 s del bloqueo, se registra y cobra UNA sola vez. Si a los 6 s falta el tipo: el
-              del vehículo registrado; si no está registrado, la clase M2 más vista; si nunca se vio, "auto". Si
-              faltan los ejes: 2 (mínimo de la categoría), marcados como estimados (ejes_detectados = null).
+  CAPTURA     Placa confirmada y BLOQUEADA: no cambia aunque otros frames lean otra cosa. El TIPO (M2) no se
+              decide al primer frame: desde la primera detección del vehículo se OBSERVA 1.5 s sumando la
+              confianza de cada clase en cada frame (mayoría ponderada), y recién ahí se bloquea y ya no cambia.
+              Los EJES (M3) igual: 1.5 s desde su primera detección, por mayoría de frames. Los PASAJEROS (M4) se
+              acumulan por frame. Con tipo y ejes bloqueados, a los 6 s del bloqueo de la placa, o si el vehículo
+              SALE del cuadro (2 frames seguidos sin placa ni vehículo), se registra y cobra UNA sola vez.
+              Si la observación no terminó: tipo = clase con mayor suma de confianza entre los frames vistos (con
+              un solo frame, esa clase) y ejes = el último conteo observado. Solo si M2 nunca vio el vehículo: la
+              categoría del vehículo registrado o, si no está registrado, "auto". Sin ejes observados: 2 (mínimo
+              de la categoría), marcados como estimados (ejes_detectados = null).
   RESULTADO   El paso registrado queda FIJO. Mientras se vea la misma placa o el vehículo, no se recalcula ni se
   FIJO        registra nada. Solo una placa DISTINTA confirmada por votación inicia un vehículo nuevo.
   SALIDA      El vehículo SALIÓ cuando no se ve ni su placa ni ningún vehículo (M2) en 2 frames seguidos y pasaron
@@ -27,32 +32,30 @@ from . import cobro
 from .models import CATEGORIAS, LecturaPlaca, PasoEnCurso, Vehiculo
 
 MAX_CAPTURA = timedelta(seconds=6)    # tope para juntar tipo y ejes después de bloquear la placa
+OBSERVACION = timedelta(seconds=1.5)  # ventana de observación del tipo y de los ejes desde su primera detección
 REPETIR = timedelta(minutes=10)       # la misma placa sin verse este tiempo vuelve a ser un vehículo nuevo
 SALIDA = timedelta(seconds=3)         # sin ver la placa ni ningún vehículo este tiempo (y FRAMES_SALIDA frames) = salió
 FRAMES_SALIDA = 2
-VOTOS_TIPO = 2
-VOTOS_EJES = 2
 VOTOS_PASAJEROS = 2
+PESO_SIN_CONFIANZA = 0.5  # peso del voto de tipo si M2 no informó su confianza
 TIPO_RESPALDO = "auto"
 TEXTO_CATEGORIA = dict(CATEGORIAS)
 
 
 # --- Conteos -------------------------------------------------------------------------------------
 
-def _sumar(votos, valor):
+def _sumar(votos, valor, peso=1):
     if valor is None or valor == "":
         return
     clave = str(valor)
-    votos[clave] = votos.get(clave, 0) + 1
+    votos[clave] = round(votos.get(clave, 0) + peso, 4)
 
 
 def _lider(votos):
-    """(valor, votos, ventaja sobre el segundo) del más votado; a igualdad, el mayor valor."""
+    """(valor, votos) del más votado; a igualdad, el mayor valor."""
     if not votos:
-        return None, 0, 0
-    orden = sorted(votos.items(), key=lambda kv: (kv[1], _num(kv[0])), reverse=True)
-    segundo = orden[1][1] if len(orden) > 1 else 0
-    return orden[0][0], orden[0][1], orden[0][1] - segundo
+        return None, 0
+    return max(votos.items(), key=lambda kv: (kv[1], _num(kv[0])))
 
 
 def _num(clave):
@@ -63,12 +66,15 @@ def _num(clave):
 
 
 def tipo_actual(estado):
+    """Tipo bloqueado o, mientras se observa, el provisional (mayor suma de confianza hasta ahora)."""
     return estado.tipo or (_lider(estado.votos_tipo)[0] or "")
 
 
 def ejes_actuales(estado):
-    valor, votos, _ = _lider(estado.votos_ejes)
-    return (int(valor) if valor is not None else None), votos >= VOTOS_EJES
+    """(ejes, bloqueados): los bloqueados o, mientras se observan, el último conteo visto."""
+    if estado.ejes is not None:
+        return estado.ejes, True
+    return estado.ultimo_eje, False
 
 
 def pasajeros_estables(estado):
@@ -80,16 +86,39 @@ def pasajeros_estables(estado):
     return (int(valor) if valor is not None else None), False
 
 
-def _bloquear_tipo(estado):
-    if estado.tipo:
+def _en_ventana(desde, cuando):
+    return desde is None or cuando - desde <= OBSERVACION
+
+
+def _observar_tipo(estado, clase, confianza, cuando):
+    """Suma la confianza de la clase M2 de ESTE vehículo mientras dura su observación de 1.5 s."""
+    if estado.tipo or clase not in TEXTO_CATEGORIA or not _en_ventana(estado.tipo_desde, cuando):
         return
-    valor, votos, ventaja = _lider(estado.votos_tipo)
-    if valor and votos >= VOTOS_TIPO and ventaja > 0:
-        estado.tipo = valor
+    estado.tipo_desde = estado.tipo_desde or cuando
+    _sumar(estado.votos_tipo, clase, confianza if confianza is not None else PESO_SIN_CONFIANZA)
+
+
+def _observar_ejes(estado, ejes, cuando):
+    if estado.ejes is not None or ejes is None:
+        return
+    estado.ultimo_eje = ejes
+    if _en_ventana(estado.ejes_desde, cuando):
+        estado.ejes_desde = estado.ejes_desde or cuando
+        _sumar(estado.votos_ejes, ejes)
+
+
+def _cerrar_observacion(estado, ahora):
+    """Cumplidos 1.5 s desde la primera detección, el tipo (mayor suma de confianza) y los ejes (mayoría de
+    frames) quedan bloqueados para el resto del paso."""
+    if not estado.tipo and estado.tipo_desde and ahora - estado.tipo_desde >= OBSERVACION:
+        estado.tipo = _lider(estado.votos_tipo)[0] or ""
+    if estado.ejes is None and estado.ejes_desde and ahora - estado.ejes_desde >= OBSERVACION:
+        valor = _lider(estado.votos_ejes)[0]
+        estado.ejes = int(valor) if valor is not None else estado.ultimo_eje
 
 
 def _completo(estado):
-    return bool(estado.tipo) and ejes_actuales(estado)[1]
+    return bool(estado.tipo) and estado.ejes is not None
 
 
 # --- Estado visible --------------------------------------------------------------------------------
@@ -100,6 +129,7 @@ def flujo_dict(estado, ahora):
     ejes, ejes_listo = ejes_actuales(estado)
     pasajeros, pasajeros_listo = pasajeros_estables(estado)
     bloqueada = bool(estado.placa)
+    analizando = bloqueada and not estado.tipo and estado.tipo_desde is not None
     if not bloqueada:
         etapa = "placa"
     elif not estado.tipo:
@@ -115,6 +145,8 @@ def flujo_dict(estado, ahora):
         "tipo": tipo or None,
         "tipo_texto": TEXTO_CATEGORIA.get(tipo, tipo) or None,
         "tipo_listo": bool(estado.tipo),
+        # Observando el tipo (1.5 s): la pantalla muestra "Analizando…" con el valor provisional en gris.
+        "tipo_analizando": analizando,
         "ejes": ejes,
         "ejes_listo": ejes_listo,
         "pasajeros": pasajeros,
@@ -128,6 +160,7 @@ def flujo_de_paso(paso):
     return {
         "etapa": "registrado", "placa": paso.placa_normalizada, "placa_bloqueada": True,
         "tipo": tipo or None, "tipo_texto": paso.get_categoria_detectada_display() or None, "tipo_listo": True,
+        "tipo_analizando": False,
         "ejes": paso.ejes_detectados, "ejes_texto": paso.ejes_texto, "ejes_listo": True,
         "pasajeros": paso.pasajeros, "pasajeros_listo": True,
         "segundos": None,
@@ -139,6 +172,7 @@ def flujo_de_paso(paso):
 def _limpiar_captura(estado, ahora):
     estado.placa = estado.texto_leido = estado.tipo = ""
     estado.confianza = estado.bloqueada_at = None
+    estado.tipo_desde = estado.ejes = estado.ejes_desde = estado.ultimo_eje = None
     estado.votos_tipo, estado.votos_ejes, estado.votos_pasajeros = {}, {}, {}
     estado.evidencia = estado.evidencia_confianza = None
     estado.reiniciado_at = ahora
@@ -152,13 +186,14 @@ def _bloquear_placa(estado, voto, ahora):
     estado.texto_leido = voto["placa"]
     estado.confianza = voto["confianza"]
     estado.bloqueada_at = estado.ultimo_visto_at = ahora
-    # Los frames que confirmaron la placa ya votan por su tipo, ejes y pasajeros.
+    # Los frames que confirmaron la placa ya son parte de la observación (la ventana empieza en el primero que vio
+    # el vehículo) y votan por sus pasajeros.
     for l in LecturaPlaca.objects.filter(caseta_id=estado.caseta_id, placa=voto["placa"],
-                                         created_at__gte=ahora - cobro.VENTANA_VOTO):
-        _sumar(estado.votos_tipo, l.categoria)
-        _sumar(estado.votos_ejes, l.ejes)
+                                         created_at__gte=ahora - cobro.VENTANA_VOTO).order_by("created_at"):
+        _observar_tipo(estado, l.categoria, l.confianza_categoria, l.created_at)
+        _observar_ejes(estado, l.ejes, l.created_at)
         _sumar(estado.votos_pasajeros, l.pasajeros)
-    _bloquear_tipo(estado)
+    _cerrar_observacion(estado, ahora)
 
 
 def _acumular(estado, lecturas, vehiculo, imagen, ahora):
@@ -168,9 +203,8 @@ def _acumular(estado, lecturas, vehiculo, imagen, ahora):
     hay_vehiculo = bool(vehiculo.get("caja_vehiculo") or vehiculo.get("clase"))
     if propia:
         # Tipo y ejes del vehículo que contiene la placa bloqueada; el mejor frame queda como evidencia.
-        if not estado.tipo:
-            _sumar(estado.votos_tipo, propia["categoria"])
-        _sumar(estado.votos_ejes, propia["ejes"] if propia["ejes"] is not None else vehiculo.get("ejes"))
+        _observar_tipo(estado, propia["categoria"], propia.get("confianza_clase"), ahora)
+        _observar_ejes(estado, propia["ejes"] if propia["ejes"] is not None else vehiculo.get("ejes"), ahora)
         _sumar(estado.votos_pasajeros, vehiculo.get("pasajeros"))
         if (propia["confianza"] or 0) >= (estado.evidencia_confianza or 0) or estado.evidencia is None:
             estado.evidencia = vehiculo.get("evidencia") or imagen
@@ -181,27 +215,27 @@ def _acumular(estado, lecturas, vehiculo, imagen, ahora):
         estado.ultimo_visto_at = ahora
     elif hay_vehiculo and not otra_placa:
         # Placa no legible en este frame: el vehículo principal sigue siendo el del paso.
-        if not estado.tipo and vehiculo.get("clase") in TEXTO_CATEGORIA:
-            _sumar(estado.votos_tipo, vehiculo["clase"])
-        _sumar(estado.votos_ejes, vehiculo.get("ejes"))
+        _observar_tipo(estado, vehiculo.get("clase"), vehiculo.get("confianza_clase"), ahora)
+        _observar_ejes(estado, vehiculo.get("ejes"), ahora)
         _sumar(estado.votos_pasajeros, vehiculo.get("pasajeros"))
-    _bloquear_tipo(estado)
+        estado.ultimo_visto_at = ahora
+    # Salida durante la captura: frames seguidos sin ninguna placa ni vehículo.
+    estado.frames_sin_vehiculo = 0 if (lecturas or hay_vehiculo) else estado.frames_sin_vehiculo + 1
+    _cerrar_observacion(estado, ahora)
 
 
 def _datos_finales(estado):
-    """(categoria, ejes, fuente) para cobrar: lo detectado o, si falta, los respaldos (ver docstring)."""
-    if estado.tipo:
-        categoria, fuente = estado.tipo, "inferencia"
+    """(categoria, ejes, fuente) para cobrar: lo observado o, si M2 nunca vio el vehículo, los respaldos."""
+    observado = estado.tipo or _lider(estado.votos_tipo)[0]  # bloqueado o, si no terminó, mayor suma de confianza
+    if observado:
+        categoria, fuente = observado, "inferencia"
     else:
         registrado = Vehiculo.objects.filter(placa=estado.placa).first()
-        mas_visto = _lider(estado.votos_tipo)[0]
         if registrado:
             categoria, fuente = registrado.categoria, "registro"
-        elif mas_visto:
-            categoria, fuente = mas_visto, "inferencia"
         else:
             categoria, fuente = TIPO_RESPALDO, "respaldo"
-    ejes, _ = ejes_actuales(estado)  # None = no se vio ningún eje: se cobran 2 (estimado)
+    ejes, _ = ejes_actuales(estado)  # bloqueados o el último visto; None = ningún eje: se cobran 2 (estimado)
     return categoria, ejes, fuente
 
 
@@ -215,8 +249,9 @@ def _registrar(estado, usuario, ahora, motivo):
         ahora=ahora, antiduplicado=False, fuente_categoria=fuente)
     _limpiar_captura(estado, ahora)
     estado.paso = paso
-    estado.ultimo_visto_at = ahora
-    estado.salida_at, estado.frames_sin_vehiculo = None, 0
+    estado.salida_at = None
+    if motivo != "salida":  # si ya salió, se conservan su última vista y los frames vacíos para darle salida
+        estado.ultimo_visto_at, estado.frames_sin_vehiculo = ahora, 0
     return {"accion": "registrado", "paso": paso, "info": info, "evidencia": evidencia, "motivo": motivo,
             "flujo": flujo_de_paso(paso)}
 
@@ -281,8 +316,8 @@ def _avanzar(estado, caseta, lecturas, vehiculo, imagen, usuario, ahora):
         return _resultado_fijo(fijo) if en_pantalla else {"accion": "sin_placa", "flujo": flujo_dict(estado, ahora)}
 
     LecturaPlaca.objects.create(caseta=caseta, placa=mejor["placa"], confianza=mejor["confianza"],
-                                categoria=mejor["categoria"], ejes=mejor["ejes"], pasajeros=vehiculo.get("pasajeros"),
-                                created_at=ahora)
+                                categoria=mejor["categoria"], confianza_categoria=mejor.get("confianza_clase"),
+                                ejes=mejor["ejes"], pasajeros=vehiculo.get("pasajeros"), created_at=ahora)
     voto = cobro.votar(caseta, ahora, desde=estado.reiniciado_at, excluir=excluida)
     if voto is None:
         votos = LecturaPlaca.objects.filter(caseta=caseta, placa=mejor["placa"],
@@ -333,6 +368,8 @@ def _cerrar_si_listo(estado, usuario, ahora):
         return _registrar(estado, usuario, ahora, "completo")
     if ahora - estado.bloqueada_at >= MAX_CAPTURA:
         return _registrar(estado, usuario, ahora, "tiempo")
+    if estado.frames_sin_vehiculo >= FRAMES_SALIDA:  # salió antes de cerrar la observación: con lo observado
+        return _registrar(estado, usuario, ahora, "salida")
     return None
 
 

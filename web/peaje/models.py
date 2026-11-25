@@ -214,6 +214,7 @@ class LecturaPlaca(models.Model):
     placa = models.CharField(max_length=10)
     confianza = models.FloatField(null=True, blank=True)  # 0..1
     categoria = models.CharField(max_length=10, choices=CATEGORIAS, blank=True)
+    confianza_categoria = models.FloatField(null=True, blank=True)  # 0..1, confianza de M2 en `categoria`
     ejes = models.PositiveSmallIntegerField(null=True, blank=True)
     pasajeros = models.PositiveSmallIntegerField(null=True, blank=True)  # M4: personas dentro del vehículo
     created_at = models.DateTimeField(default=timezone.now, db_index=True)  # hora del frame
@@ -229,8 +230,9 @@ class LecturaPlaca(models.Model):
 class PasoEnCurso(models.Model):
     """Vehículo que está pasando ahora por una caseta (máquina de estados del punto de cobro, una fila por caseta).
 
-    La placa se bloquea al confirmarse por votación y no cambia hasta registrar el paso; tipo (M2), ejes (M3) y
-    pasajeros (M4) se acumulan por frame como votos ({valor: cantidad}). Al registrar se limpia la captura y el paso
+    La placa se bloquea al confirmarse por votación y no cambia hasta registrar el paso. Tipo (M2) y ejes (M3) se
+    observan 1.5 s desde su primera detección (votos_tipo = {clase: suma de confianzas}, votos_ejes = {ejes: frames})
+    y recién ahí se bloquean; los pasajeros (M4) se acumulan por frame ({valor: cantidad}). Al registrar se limpia la captura y el paso
     queda en `paso` como resultado fijo hasta que se confirme una placa distinta (ver flujo.py).
     """
 
@@ -243,8 +245,12 @@ class PasoEnCurso(models.Model):
     ultimo_frame_at = models.DateTimeField(null=True, blank=True)
     reiniciado_at = models.DateTimeField(null=True, blank=True)  # lecturas anteriores no votan por la placa
     votos_tipo = models.JSONField(default=dict, blank=True)
-    tipo = models.CharField(max_length=10, choices=CATEGORIAS, blank=True)  # bloqueado por mayoría
+    tipo = models.CharField(max_length=10, choices=CATEGORIAS, blank=True)  # bloqueado al cerrar la observación
+    tipo_desde = models.DateTimeField(null=True, blank=True)  # primera detección M2 del vehículo (inicio de la ventana)
     votos_ejes = models.JSONField(default=dict, blank=True)
+    ejes = models.PositiveSmallIntegerField(null=True, blank=True)  # bloqueados al cerrar la observación
+    ejes_desde = models.DateTimeField(null=True, blank=True)  # primera detección de ejes (M3)
+    ultimo_eje = models.PositiveSmallIntegerField(null=True, blank=True)  # último conteo de ejes observado
     votos_pasajeros = models.JSONField(default=dict, blank=True)
     evidencia = models.BinaryField(null=True, blank=True)  # mejor frame de la placa (personas cubiertas)
     evidencia_confianza = models.FloatField(null=True, blank=True)

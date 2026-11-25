@@ -57,3 +57,38 @@ class IconoSinImagenTests(TestCase):
         # si una evidencia no carga (borrada o inexistente), el ícono neutro reemplaza a la imagen rota
         self.assertContains(r, 'id="ico-sin-imagen"')
         self.assertContains(r, 'img.closest(".mini-btn, .captura-chat, .captura-grande, .captura-consulta")')
+
+
+class LimpiarPasosTests(TestCase):
+    def setUp(self):
+        caseta = caseta_principal()
+        p1, _, _ = cobro.registrar_paso(caseta.id, "3876LBD", categoria="auto")    # cobrado con saldo
+        p2, _, _ = cobro.registrar_paso(caseta.id, "7777XYZ", categoria="auto")    # pendiente + alerta
+        evidencias.guardar_evidencia(p1, FRAME)
+        evidencias.guardar_evidencia(p2, FRAME)
+        PasoEnCurso.objects.create(caseta=caseta, placa="2451KTP", paso=p2)
+        LecturaPlaca.objects.create(caseta=caseta, placa="2451KTP", confianza=0.9)
+        self.saldos = dict(Vehiculo.objects.values_list("placa", "saldo"))
+        self.conservados = (Usuario.objects.count(), Vehiculo.objects.count(), Tarifa.objects.count(),
+                            Caseta.objects.count())
+
+    def test_sin_confirmar_no_borra_nada(self):
+        salida = StringIO()
+        with self.assertRaisesMessage(CommandError, "--confirmar"):
+            call_command("limpiar_pasos", stdout=salida)
+        self.assertIn("Antes:", salida.getvalue())
+        self.assertEqual((Paso.objects.count(), EvidenciaImagen.objects.count(), Alerta.objects.count()), (2, 2, 1))
+
+    def test_borra_solo_pasos_y_conserva_vehiculos_y_saldos(self):
+        salida = StringIO()
+        call_command("limpiar_pasos", "--confirmar", stdout=salida)
+        texto = salida.getvalue()
+        self.assertIn("Antes:", texto)
+        self.assertIn("Después:", texto)
+        self.assertIn("2 pasos, 2 evidencias y 1 alertas borrados", texto)
+        for modelo in (Paso, EvidenciaImagen, Alerta, PasoEnCurso, LecturaPlaca):
+            self.assertEqual(modelo.objects.count(), 0, modelo.__name__)
+        self.assertEqual((Usuario.objects.count(), Vehiculo.objects.count(), Tarifa.objects.count(),
+                          Caseta.objects.count()), self.conservados)
+        self.assertGreater(Vehiculo.objects.count(), 0)
+        self.assertEqual(dict(Vehiculo.objects.values_list("placa", "saldo")), self.saldos)

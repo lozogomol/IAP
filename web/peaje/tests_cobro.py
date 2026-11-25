@@ -24,6 +24,11 @@ class Base(TestCase):
         self.t0 = timezone.now()
         Vehiculo.objects.filter(placa="3876LBD").update(saldo=Decimal("100"))   # auto, saldo suficiente
         Vehiculo.objects.filter(placa="1987FHK").update(saldo=Decimal("1"))     # auto, saldo insuficiente
+        # Estos tests son del cobro y la salida, no de la observación del tipo (tests_caseta.ObservacionTipoTests):
+        # con una ventana de 0,5 s, dos frames con tipo y ejes bastan para registrar el paso.
+        ventana = mock.patch.object(flujo, "OBSERVACION", timedelta(seconds=0.5))
+        ventana.start()
+        self.addCleanup(ventana.stop)
 
     def _f(self, segundos, placa=None, categoria="auto", ejes=2):
         lecturas = [_lectura(placa, 0.9, categoria=categoria, ejes=ejes)] if placa else []
@@ -187,6 +192,8 @@ class ApiYTiempoRealTests(Base):
     def test_al_salir_emite_pago_por_pusher_y_la_tarjeta_muestra_cobrado_salio(self):
         with mock.patch.object(tiempo_real, "en_segundo_plano"), mock.patch.object(tiempo_real, "notificar"):
             self._frame("7777XYZ")
+            hace = timezone.now() - timedelta(seconds=2)  # la observación del tipo y los ejes ya se cumplió
+            PasoEnCurso.objects.update(tipo_desde=hace, ejes_desde=hace)
             d = self._frame("7777XYZ")
         self.assertEqual((d["accion"], d["paso"]["estado"], d["mensaje"]),
                          ("registrado", "pendiente_pago", "Tarifa: 4.00 Bs · Pendiente de pago (no registrada)"))

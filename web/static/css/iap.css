@@ -428,6 +428,8 @@ dialog[open] { animation: entrar 150ms ease-out; }
 .pasos-flujo li.listo .etapa { color: var(--n-2); }
 .pasos-flujo li.listo .etapa .ico { display: block; }
 .pasos-flujo li.listo .valor { color: var(--c-texto); }
+/* Tipo en observación (1.5 s): "Analizando…" y el valor provisional en gris */
+.pasos-flujo .valor .provisional { color: var(--c-tenue); font-weight: 500; }
 .resultado-cobro { display: flex; align-items: center; justify-content: space-between; gap: var(--e-2); margin-top: 8px; padding: 10px 12px;
                    font-weight: 700; background: #fff; border: 2px solid var(--n-2); color: var(--n-2);
                    font-size: var(--t-sm); min-height: 44px; }

@@ -272,12 +272,21 @@ class RegistrarPasoTests(TestCase):
         self.assertFalse(dup)
 
 
+def cumplir_observacion(caseta):
+    """Corre hacia atrás el inicio de la observación del tipo y los ejes: el próximo frame ya la cierra."""
+    hace = timezone.now() - timedelta(seconds=2)
+    for campo in ("tipo_desde", "ejes_desde"):
+        PasoEnCurso.objects.filter(caseta=caseta, **{f"{campo}__isnull": False}).update(**{campo: hace})
+
+
 def pasar_vehiculo(client, caseta, lecturas, vehiculo=None, **extra):
-    """Un vehículo completo por la API: dos frames con su placa (bloquea y vota tipo/ejes) y, si aún faltan datos,
-    pasados los 6 s un frame vacío (se completa con respaldos y cobra). Devuelve (primera respuesta, la del cobro)."""
+    """Un vehículo completo por la API: dos frames con su placa (bloquea y observa tipo/ejes; entre ambos se da por
+    cumplida la observación de 1,5 s) y, si aún faltan datos, pasados los 6 s un frame vacío (se completa con
+    respaldos y cobra). Devuelve (primera respuesta, la del cobro)."""
     url = "/api/v1/pasos/frame"
     with mock.patch(INFERIR, return_value=(lecturas, 50, vehiculo or SIN_VEHICULO)):
         primero = client.post(url, {"imagen": _jpeg(), "caseta_id": caseta.id}, **extra)
+        cumplir_observacion(caseta)
         segundo = client.post(url, {"imagen": _jpeg(), "caseta_id": caseta.id}, **extra)
     if segundo.json().get("accion") == "registrado":
         return primero, segundo
@@ -301,9 +310,10 @@ class FlujoTests(TestCase):
         return {**SIN_VEHICULO, "clase": clase, "caja_vehiculo": [0, 0, 100, 100], "ejes": ejes, "pasajeros": pasajeros}
 
     def _completo(self, t, placa, categoria="auto", ejes=2):
-        """Dos frames con tipo y ejes: el paso se completa y cobra en el segundo."""
-        self._f(t, [_lectura(placa, 0.9, categoria=categoria, ejes=ejes)], self._con(categoria, ejes))
-        return self._f(t + 0.5, [_lectura(placa, 0.9, categoria=categoria, ejes=ejes)], self._con(categoria, ejes))
+        """Frames con tipo y ejes cada 0,5 s: al cumplirse la observación de 1,5 s el paso se completa y cobra."""
+        for dt in (0, 0.5, 1):
+            self._f(t + dt, [_lectura(placa, 0.9, categoria=categoria, ejes=ejes)], self._con(categoria, ejes))
+        return self._f(t + 1.5, [_lectura(placa, 0.9, categoria=categoria, ejes=ejes)], self._con(categoria, ejes))
 
     def test_placa_bloqueada_no_cambia(self):
         r = self._f(0, [_lectura("3876LBD", 0.9, categoria="auto")], self._con("auto"))
@@ -323,18 +333,20 @@ class FlujoTests(TestCase):
     def test_tipo_por_mayoria_y_se_bloquea(self):
         self._f(0, [_lectura("5630KRT", 0.9, categoria="minibus")], self._con("minibus"))
         self.assertFalse(self._f(0.5, [_lectura("5630KRT", 0.8, categoria="auto")], self._con("auto"))["flujo"]["tipo_listo"])
-        r = self._f(1, [_lectura("5630KRT", 0.8, categoria="minibus")], self._con("minibus"))
+        self.assertFalse(self._f(1, [_lectura("5630KRT", 0.8, categoria="minibus")], self._con("minibus"))["flujo"]["tipo_listo"])
+        r = self._f(1.5, [_lectura("5630KRT", 0.8, categoria="minibus")], self._con("minibus"))
         self.assertEqual((r["flujo"]["tipo"], r["flujo"]["tipo_listo"], r["flujo"]["etapa"]), ("minibus", True, "ejes"))
-        for t in (1.5, 2, 2.5):  # ya bloqueado: votos posteriores no lo cambian
+        for t in (2, 2.5, 3):  # ya bloqueado: votos posteriores no lo cambian
             self._f(t, [_lectura("5630KRT", 0.8, categoria="auto")], self._con("auto"))
         paso = self._f(6, [])["paso"]
         self.assertEqual((paso.categoria_detectada, paso.monto), ("minibus", Decimal("6")))
 
-    def test_con_tipo_y_ejes_cobra_al_instante(self):
+    def test_con_tipo_y_ejes_cobra_al_cerrar_la_observacion(self):
         self._f(0, [_lectura("4720MDX", 0.9, categoria="camion", ejes=4)], self._con("camion", 4))
-        r = self._f(0.5, [_lectura("4720MDX", 0.9, categoria="camion", ejes=3)], self._con("camion", 3))
-        self.assertEqual(r["accion"], "en_curso")  # tipo listo, ejes empatados
+        self._f(0.5, [_lectura("4720MDX", 0.9, categoria="camion", ejes=3)], self._con("camion", 3))
         r = self._f(1, [_lectura("4720MDX", 0.9, categoria="camion", ejes=4)], self._con("camion", 4))
+        self.assertEqual(r["accion"], "en_curso")  # aún observando (1 s)
+        r = self._f(1.5, [_lectura("4720MDX", 0.9, categoria="camion", ejes=3)], self._con("camion", 3))
         self.assertEqual((r["accion"], r["motivo"]), ("registrado", "completo"))
         self.assertEqual((r["paso"].ejes_detectados, r["paso"].monto, r["paso"].estado), (4, Decimal("12"), "cobrado"))
         self.assertEqual(r["evidencia"], b"\xff\xd8frame")  # mejor frame de la placa
@@ -350,7 +362,7 @@ class FlujoTests(TestCase):
         self.assertEqual(r["accion"], "registrado")
         paso = r["paso"]
         for i in range(60):  # 9 minutos con la misma placa en cuadro (y frames sin placa en medio)
-            t = 1 + i * 9
+            t = 2 + i * 9
             r = self._f(t, [_lectura("3876LBD", 0.95, categoria="camion", ejes=5)], self._con("camion", 5))
             self.assertEqual((r["accion"], r["paso"].pk), ("fijo", paso.pk))
             self.assertEqual(self._f(t + 2, [], self._con("auto", 2))["accion"], "fijo")
@@ -387,15 +399,19 @@ class FlujoTests(TestCase):
         self.assertEqual(r["info"]["fuente_categoria"], "respaldo")
         self.assertEqual(self._f(7, [])["accion"], "fijo")  # una sola vez
 
-    def test_sin_tipo_usa_el_registro_y_luego_la_clase_mas_vista(self):
-        # Registrado (bus) y sin mayoría de tipo: categoría del registro.
-        self._f(0, [_lectura("4471LCH", 0.9, categoria="moto")], self._con("moto"))
+    def test_lo_observado_manda_y_el_registro_solo_si_nunca_se_vio(self):
+        # Registrado (bus) pero M2 nunca vio el vehículo: categoría del registro.
+        self._f(0, [_lectura("4471LCH", 0.9)])
         r = self._f(6, [])
         self.assertEqual((r["paso"].categoria_detectada, r["info"]["fuente_categoria"], r["paso"].monto),
                          ("bus", "registro", Decimal("8")))
-        # No registrado: la clase de M2 más vista, aunque no llegó a mayoría.
-        self._f(10, [_lectura("7777XYZ", 0.9, categoria="camion", ejes=3)], self._con("camion", 3))
-        r = self._f(16, [])
+        # Registrado (bus) y M2 lo vio como moto en un solo frame: lo observado manda.
+        self._f(8, [_lectura("3305HDW", 0.9, categoria="moto")], self._con("moto"))
+        r = self._f(14, [])
+        self.assertEqual((r["paso"].categoria_detectada, r["info"]["fuente_categoria"]), ("moto", "inferencia"))
+        # No registrado: la clase de M2 observada.
+        self._f(20, [_lectura("7777XYZ", 0.9, categoria="camion", ejes=3)], self._con("camion", 3))
+        r = self._f(26, [])
         self.assertEqual((r["paso"].categoria_detectada, r["paso"].ejes_detectados, r["paso"].monto),
                          ("camion", 3, Decimal("10")))
 
@@ -576,7 +592,12 @@ class ApiFrameTests(TestCase):
     def test_registra_con_categoria_detectada(self):
         self._frame([_lectura("3876LBD", 0.7, categoria="camion")])
         d = self._frame([_lectura("3876LBD", 0.75, categoria="camion")]).json()
-        self.assertEqual((d["flujo"]["tipo"], d["flujo"]["tipo_listo"]), ("camion", True))
+        self.assertEqual((d["flujo"]["tipo"], d["flujo"]["tipo_listo"], d["flujo"]["tipo_analizando"]),
+                         ("camion", False, True))  # observando: "Analizando…" con el provisional
+        cumplir_observacion(self.caseta)
+        d = self._frame([_lectura("3876LBD", 0.75, categoria="camion")]).json()
+        self.assertEqual((d["flujo"]["tipo"], d["flujo"]["tipo_listo"], d["flujo"]["tipo_analizando"]),
+                         ("camion", True, False))
         PasoEnCurso.objects.filter(caseta=self.caseta).update(bloqueada_at=timezone.now() - timedelta(seconds=7))
         p = self._frame([]).json()["paso"]
         self.assertEqual((p["categoria"], p["categoria_texto"], p["ejes"], p["tarifa"], p["fuente_categoria"]),
@@ -842,6 +863,7 @@ class FrameProduccionTests(TestCase):
         self.assertEqual(Tarifa.objects.count(), 21)
         # placa nueva con tipo, ejes y pasajeros → se completa y cobra en el segundo frame
         self.assertEqual(self._frame("3876LBD", "camion", 3, 2)["accion"], "en_curso")
+        cumplir_observacion(self.caseta)
         d = self._frame("3876LBD", "camion", 3, 2)
         self.assertEqual((d["accion"], d["paso"]["tarifa"], d["paso"]["pasajeros"]), ("registrado", "10.00", 2))
         # misma placa y frames sin placa → resultado fijo
@@ -883,3 +905,96 @@ class FrameProduccionTests(TestCase):
                          ("ERROR", ["consola"]))
         self.assertEqual(settings.LOGGING["handlers"]["consola"]["class"], "logging.StreamHandler")
         self.assertIn("consola", loggers["peaje"]["handlers"])
+
+
+class ObservacionTipoTests(TestCase):
+    """El tipo (M2) y los ejes (M3) se observan 1,5 s antes de bloquearse: nunca se deciden al primer frame."""
+
+    def setUp(self):
+        self.caseta = Caseta.objects.first()
+        self.t0 = timezone.now()
+
+    def _f(self, segundos, clase=None, conf=None, ejes=None, placa="7777XYZ"):
+        """Frame a los `segundos`: con `clase`, la placa (no registrada) y su vehículo; sin ella, cuadro vacío."""
+        if clase is None:
+            lecturas, vehiculo = [], SIN_VEHICULO
+        else:
+            lecturas = [_lectura(placa, 0.9, categoria=clase, ejes=ejes, confianza_clase=conf)]
+            vehiculo = {**SIN_VEHICULO, "clase": clase, "confianza_clase": conf, "caja_vehiculo": [0, 0, 9, 9],
+                        "ejes": ejes}
+        return flujo.procesar_frame(self.caseta, lecturas, vehiculo, b"\xff\xd8frame",
+                                    ahora=self.t0 + timedelta(seconds=segundos))
+
+    def test_el_tipo_no_se_bloquea_antes_de_1_5_s(self):
+        for t in (0, 0.5, 1, 1.4):  # la misma clase con confianza alta en todos: igual se sigue observando
+            r = self._f(t, "camion", 0.99, ejes=3)
+            self.assertEqual((r["accion"], r["flujo"]["tipo_listo"], r["flujo"]["tipo_analizando"]),
+                             ("en_curso", False, True), t)
+            self.assertEqual((r["flujo"]["tipo"], r["flujo"]["tipo_texto"], r["flujo"]["etapa"]), ("camion", "Camión", "tipo"))
+        self.assertEqual(PasoEnCurso.objects.get(caseta=self.caseta).tipo, "")
+        r = self._f(1.5, "camion", 0.99, ejes=3)
+        self.assertEqual((r["accion"], r["motivo"], r["paso"].categoria_detectada), ("registrado", "completo", "camion"))
+
+    def test_mayoria_ponderada_por_confianza_con_frames_contradictorios(self):
+        # auto aparece en más frames (3) pero con poca confianza (0,3 c/u = 0,9); camion en 2 con 0,8 (= 1,6).
+        for t, clase, conf in ((0, "auto", 0.3), (0.3, "camion", 0.8), (0.6, "auto", 0.3), (0.9, "auto", 0.3),
+                               (1.2, "camion", 0.8)):
+            self.assertEqual(self._f(t, clase, conf)["accion"], "en_curso")
+        estado = PasoEnCurso.objects.get(caseta=self.caseta)
+        self.assertEqual(estado.votos_tipo, {"auto": 0.9, "camion": 1.6})
+        r = self._f(1.5, "auto", 0.3)
+        self.assertEqual((r["flujo"]["tipo"], r["flujo"]["tipo_listo"]), ("camion", True))
+        for t in (2, 2.5, 3):  # bloqueado: ya no cambia durante el paso, aunque lleguen otros frames
+            self.assertEqual(self._f(t, "auto", 0.99)["flujo"]["tipo"], "camion")
+        self.assertEqual(self._f(6)["paso"].categoria_detectada, "camion")
+
+    def test_si_sale_a_los_0_6_s_guarda_la_clase_observada(self):
+        self._f(0, "bus", 0.6, ejes=2)
+        self._f(0.3, "minibus", 0.4, ejes=3)
+        self._f(0.6, "bus", 0.5, ejes=3)   # último frame en que se ve: bus 1,1 vs minibus 0,4; último eje: 3
+        self.assertEqual(self._f(0.9)["accion"], "en_curso")  # 1 frame vacío: aún no salió
+        r = self._f(1.2)                                       # 2 frames vacíos: salió antes de 1,5 s
+        self.assertEqual((r["accion"], r["motivo"]), ("registrado", "salida"))
+        p = r["paso"]
+        self.assertEqual((p.categoria_detectada, p.ejes_detectados, r["info"]["fuente_categoria"]), ("bus", 3, "inferencia"))
+        # luego se le da salida (y se cobra en efectivo) como a cualquier vehículo que deja el cuadro
+        r = self._f(3.6)
+        self.assertEqual((r["accion"], r["paso"].pk), ("salida", p.pk))
+        p.refresh_from_db()
+        self.assertEqual((p.estado, p.forma_pago), ("cobrado", "efectivo"))
+
+    def test_un_solo_frame_visto_tambien_se_guarda(self):
+        self._f(0, "moto", 0.55)
+        self._f(0.5)
+        r = self._f(1)
+        self.assertEqual((r["accion"], r["motivo"], r["paso"].categoria_detectada, r["paso"].ejes_detectados),
+                         ("registrado", "salida", "moto", None))
+        self.assertEqual(r["info"]["fuente_categoria"], "inferencia")
+
+    def test_sin_confianza_tambien_vota(self):
+        self._f(0, "auto")
+        r = self._f(1.5, "auto")  # sin ejes: el paso espera ejes hasta los 6 s, pero el tipo ya quedó bloqueado
+        self.assertEqual((r["accion"], r["flujo"]["tipo"], r["flujo"]["tipo_listo"]), ("en_curso", "auto", True))
+        self.assertEqual(PasoEnCurso.objects.get(caseta=self.caseta).votos_tipo, {"auto": 2 * flujo.PESO_SIN_CONFIANZA})
+
+    def test_ejes_por_mayoria_en_la_ventana(self):
+        for t, ejes in ((0, 3), (0.3, 3), (0.6, 2), (1, 3)):
+            self.assertFalse(self._f(t, "camion", 0.9, ejes=ejes)["flujo"]["ejes_listo"])
+        r = self._f(1.5, "camion", 0.9, ejes=2)  # el último dice 2, pero en la ventana 3 lo vieron más frames
+        self.assertEqual((r["accion"], r["paso"].ejes_detectados), ("registrado", 3))
+
+    def test_la_observacion_empieza_en_la_primera_deteccion_del_vehiculo(self):
+        # Placa bloqueada sin vehículo a la vista: aún no hay observación (ni "Analizando…").
+        r = flujo.procesar_frame(self.caseta, [_lectura("7777XYZ", 0.9)], SIN_VEHICULO, b"\xff\xd8",
+                                 ahora=self.t0)
+        self.assertEqual((r["flujo"]["placa_bloqueada"], r["flujo"]["tipo_analizando"]), (True, False))
+        self.assertFalse(self._f(1, "bus", 0.9)["flujo"]["tipo_listo"])     # primera detección: 1 s
+        self.assertFalse(self._f(2, "bus", 0.9)["flujo"]["tipo_listo"])     # 1 s observando
+        self.assertTrue(self._f(2.5, "bus", 0.9)["flujo"]["tipo_listo"])    # 1,5 s observando
+
+    def test_pantalla_muestra_analizando_con_el_provisional_en_gris(self):
+        entrar(self.client, Usuario.objects.get(email_google="lozogomol@gmail.com"))
+        r = self.client.get("/caseta")
+        self.assertContains(r, "f.tipo_analizando")
+        self.assertContains(r, '"Analizando… "')
+        self.assertContains(r, 'gris.className = "provisional"')

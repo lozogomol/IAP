@@ -55,8 +55,9 @@
   // La cámara se pide según la orientación (vertical 9:16, horizontal 16:9) y se vuelve a pedir al girar el
   // celular. El video llena su caja (object-fit: cover) y el frame enviado es exactamente lo que se ve, derecho y
   // con el lado mayor de hasta 1280 px. El servidor lleva el flujo del vehículo (placa → tipo → ejes → pasajeros),
-  // cobra una sola vez (con tipo y ejes, o a los 6 s) y deja el resultado fijo hasta que llegue otra placa.
-  // Frecuencia adaptativa (el túnel gratis tiene un cupo de peticiones al mes): 2 fps capturando un vehículo,
+  // cobra una sola vez (tipo y ejes observados 1.5 s, a los 6 s o al salir el vehículo) y deja el resultado fijo
+  // hasta que llegue otra placa. Frecuencia adaptativa (el túnel gratis tiene un cupo de peticiones al mes): 2 fps
+  // capturando un vehículo (incluye la observación de 1.5 s del tipo, para tener varias muestras),
   // 1 fps en espera y 0.5 fps con un resultado fijo (solo para ver si cambió la placa). Nunca dos a la vez.
   var INTERVALO = { captura: 500, espera: 1000, fijo: 2000 };
   var CALIDAD = 0.8, ANCHO_MAX = 1280, TIMEOUT_MS = 25000, CLAVE_PETICIONES = "iap-peticiones-caseta";
@@ -514,6 +515,17 @@
       $("f-" + e).className = listo[e] ? "listo" : (enMarcha ? "activo" : "");
       $("v-" + e).textContent = valor[e];
     });
+    // Tipo en observación (1.5 s): aún no se decide; "Analizando…" y el valor provisional en gris.
+    if (f.tipo_analizando && !f.tipo_listo) {
+      var v = $("v-tipo");
+      v.textContent = "Analizando… ";
+      if (f.tipo_texto) {
+        var gris = document.createElement("span");
+        gris.className = "provisional";
+        gris.textContent = f.tipo_texto;
+        v.appendChild(gris);
+      }
+    }
     $("placa").textContent = f.placa || provisional || "———";
     $("placa").classList.toggle("bloqueada", !!f.placa_bloqueada);
     $("candado").hidden = !f.placa_bloqueada;

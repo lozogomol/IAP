@@ -5,34 +5,24 @@
 {% block cabecera %}{% endblock %}
 {% block contenido %}
 <section class="acceso" aria-labelledby="titulo-denegado">
-  <div class="acceso-cab galaxia">
-    {% include "peaje/_icono.html" %}
-    <p class="titulo">Peaje IAP</p>
-    <p>Inteligencia Artificial de Peaje</p>
-  </div>
-  <div class="acceso-cuerpo">
-    <h1 id="titulo-denegado" class="flex" style="justify-content:center;color:var(--c-peligro);font-size:var(--t-xl);margin-bottom:var(--e-2)">{% icono "escudo" %}Acceso denegado</h1>
-    <p>Acceso denegado: tu cuenta de Google no está autorizada en IAP.</p>
-    {% if email %}<p><span class="cuenta">{{ email }}</span></p>{% endif %}
-    <div class="pila" style="margin-top:var(--e-4)">
-      {% if email %}
-        {% if pendiente %}
-          <p class="aviso" style="text-align:left">{% icono "reloj" %}<span>Tu solicitud de acceso está pendiente. Un administrador debe aprobarla.</span></p>
-        {% elif desactivado %}
-          <p class="aviso" style="text-align:left">{% icono "alerta" %}<span>Tu cuenta está desactivada. Contacta a un administrador.</span></p>
-        {% else %}
-          <form method="post" action="/acceso-denegado/solicitar">
-            {% csrf_token %}
-            <button class="boton primario grande" type="submit">Solicitar acceso</button>
-          </form>
-          <p class="ayuda">Se enviará tu correo y nombre de Google a un administrador.</p>
-        {% endif %}
+  {% include "peaje/_icono.html" %}
+  <h1 id="titulo-denegado">Acceso denegado</h1>
+  <p class="tenue pequeno">Acceso denegado: tu cuenta de Google no está autorizada en IAP.</p>
+  {% if email %}<span class="cuenta">{{ email }}</span>{% endif %}
+  <div class="pila">
+    {% if email %}
+      {% if pendiente %}
+        <p class="aviso">{% icono "reloj" %}<span>Tu solicitud de acceso está pendiente.</span></p>
+      {% elif desactivado %}
+        <p class="aviso">{% icono "alerta" %}<span>Tu cuenta está desactivada.</span></p>
       {% else %}
-        <p class="ayuda">Inicia sesión con Google para poder solicitar acceso.</p>
+        <form method="post" action="/acceso-denegado/solicitar">
+          {% csrf_token %}
+          <button class="boton primario bloque" type="submit">Solicitar acceso</button>
+        </form>
       {% endif %}
-      <a class="boton fantasma" href="/login">Probar con otra cuenta</a>
-    </div>
+    {% endif %}
+    <a class="boton bloque" href="/login">Probar con otra cuenta</a>
   </div>
 </section>
-<p class="pie-acceso">Peaje IAP · Inteligencia Artificial de Peaje</p>
 {% endblock %}

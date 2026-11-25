@@ -2,17 +2,12 @@
 {% load iconos %}
 {% block titulo %}Estado{% endblock %}
 {% block contenido %}
-<header class="pagina-cab galaxia">
-  <div>
-    <h1>Estado del sistema</h1>
-    <p class="subtitulo">Comprueba si la web, la base de datos y el servidor de inteligencia artificial responden.</p>
-  </div>
-  <div class="acciones">
-    <a class="boton blanco" href="/estado">{% icono "refrescar" %}Volver a comprobar</a>
-  </div>
+<header class="pagina-cab">
+  <h1>Estado</h1>
+  <a class="boton" href="/estado">{% icono "refrescar" %}Comprobar</a>
 </header>
 
-<div class="grilla grilla-3 mb-4">
+<div class="grilla grilla-3">
   <section class="tarjeta servicio" aria-labelledby="s-web">
     <div class="servicio-cab">{% icono "monitor" %}<h2 id="s-web">Web</h2><span class="luz ok" aria-hidden="true"></span></div>
     <span class="texto-estado ok">Funcionando</span>
@@ -21,14 +16,14 @@
   <section class="tarjeta servicio" aria-labelledby="s-bd">
     <div class="servicio-cab">{% icono "base_datos" %}<h2 id="s-bd">Base de datos</h2><span class="luz {% if bd_ok %}ok{% else %}mal{% endif %}" aria-hidden="true"></span></div>
     <span class="texto-estado {% if bd_ok %}ok{% else %}mal{% endif %}">{% if bd_ok %}Funcionando{% else %}Sin conexión{% endif %}</span>
-    {% if bd_ok %}<ul class="detalles"><li><span>Latencia</span><b class="num">{{ datos.latencia_bd_ms }} ms</b></li></ul>{% endif %}
+    {% if bd_ok %}<ul class="lista-datos"><li><span>Latencia</span><b class="num">{{ datos.latencia_bd_ms }} ms</b></li></ul>{% endif %}
   </section>
 
   <section class="tarjeta servicio" aria-labelledby="s-ia">
     {% if datos.inferencia == "ok" %}
       <div class="servicio-cab">{% icono "chip" %}<h2 id="s-ia">Inferencia</h2><span class="luz ok" aria-hidden="true"></span></div>
       <span class="texto-estado ok">Funcionando</span>
-      <ul class="detalles">
+      <ul class="lista-datos">
         <li><span>Latencia</span><b class="num">{{ datos.latencia_ms }} ms</b></li>
         {% for nombre, texto, clase in modelos %}
         <li><span>{{ nombre }}</span><b class="texto-estado {{ clase }}">{{ texto }}</b></li>
@@ -36,13 +31,11 @@
       </ul>
     {% elif datos.inferencia == "caida" %}
       <div class="servicio-cab">{% icono "chip" %}<h2 id="s-ia">Inferencia</h2><span class="luz mal" aria-hidden="true"></span></div>
-      <span class="texto-estado mal">Sin respuesta</span>
-      {% if datos.error %}<p class="ayuda" style="overflow-wrap:anywhere">{{ datos.error }}</p>{% endif %}
+      <span class="texto-estado mal" {% if datos.error %}title="{{ datos.error }}"{% endif %}>Sin respuesta</span>
     {% else %}
       <div class="servicio-cab">{% icono "chip" %}<h2 id="s-ia">Inferencia</h2><span class="luz aviso" aria-hidden="true"></span></div>
       <span class="texto-estado aviso">{{ datos.inferencia|capfirst }}</span>
     {% endif %}
   </section>
 </div>
-<p class="tenue pequeno">JSON para monitoreo: <a href="/estado?format=json">/estado?format=json</a></p>
 {% endblock %}

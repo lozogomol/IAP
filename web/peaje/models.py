@@ -93,7 +93,7 @@ class Paso(models.Model):
     usuario = models.ForeignKey(Usuario, on_delete=models.SET_NULL, null=True, blank=True, related_name="pasos")
     imagen_url = models.URLField(max_length=500, null=True, blank=True)
     estado = models.CharField(max_length=20, choices=ESTADOS)
-    pasajeros = models.PositiveSmallIntegerField(null=True, blank=True)  # bonus: conteo de pasajeros
+    pasajeros = models.PositiveSmallIntegerField(null=True, blank=True)  # M4: conteo de pasajeros (null = sin dato)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -131,6 +131,7 @@ class LecturaPlaca(models.Model):
     confianza = models.FloatField(null=True, blank=True)  # 0..1
     categoria = models.CharField(max_length=10, choices=CATEGORIAS, blank=True)
     ejes = models.PositiveSmallIntegerField(null=True, blank=True)
+    pasajeros = models.PositiveSmallIntegerField(null=True, blank=True)  # M4: personas dentro del vehículo
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 
     class Meta:

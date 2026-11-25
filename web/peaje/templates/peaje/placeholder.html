@@ -1,8 +1,6 @@
 {% extends "peaje/base.html" %}
 {% block titulo %}{{ titulo }}{% endblock %}
 {% block contenido %}
-<header class="pagina-cab galaxia">
-  <div><h1>{{ titulo }}</h1><p class="subtitulo">Sección en construcción.</p></div>
-</header>
-{% include "peaje/_vacio.html" with icono="info" titulo="Próximamente" texto=texto %}
+<header class="pagina-cab"><h1>{{ titulo }}</h1></header>
+{% include "peaje/_vacio.html" with titulo=texto %}
 {% endblock %}

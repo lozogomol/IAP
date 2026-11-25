@@ -53,10 +53,10 @@ class CasetaPrincipalTests(TestCase):
     def test_pagina_usa_la_caseta_principal(self):
         entrar(self.client, Usuario.objects.get(email_google="lozogomol@gmail.com"))
         r = self.client.get("/caseta")
-        self.assertContains(r, "<h1>Peaje IAP</h1>", html=False)
+        self.assertContains(r, "<h1>Caseta</h1>", html=False)
         self.assertContains(r, f'<script id="caseta-id" type="application/json">{caseta_principal().id}</script>')
-        self.assertContains(r, "Categoría detectada")
-        self.assertNotContains(r, "Ejes")
+        for texto in ("Categoría", "Ejes", "Pasajeros", "Monto"):
+            self.assertContains(r, texto)
         self.assertNotContains(r, "Senkata")
 
 
@@ -80,7 +80,7 @@ class PanelTests(MediaTemporal):
 
     def test_pagina_y_json(self):
         entrar(self.client, self.oper)
-        self.assertContains(self.client.get("/"), "Todavía no hay pasos registrados")
+        self.assertContains(self.client.get("/"), "Sin pasos registrados")
         _paso("3876LBD", monto="10")
         r = self.client.get("/")
         for texto in ("Pasos de hoy", "Recaudación de hoy", "Alertas sin atender", "Últimos pasos",
@@ -90,8 +90,8 @@ class PanelTests(MediaTemporal):
         self.assertEqual(set(d), {"kpis", "grafica", "pasos"})
         self.assertLessEqual(len(d["pasos"]), 10)
         self.assertEqual(set(d["pasos"][0]),
-                         {"id", "placa", "estado", "estado_texto", "categoria", "categoria_texto", "monto", "hora", "fecha",
-                          "imagen_url"})
+                         {"id", "placa", "estado", "estado_texto", "categoria", "categoria_texto", "ejes", "pasajeros",
+                          "monto", "hora", "fecha", "imagen_url"})
 
     def test_sin_pusher_no_carga_pusher_js(self):
         entrar(self.client, self.oper)
@@ -296,25 +296,28 @@ class ConsultaUltimoPasoTests(TestCase):
 class EstadoPaginaTests(TestCase):
     @override_settings(INFERENCE_URL="http://inferencia")
     def test_tarjetas_con_modelos(self):
-        salud = {"modelos": {"m1_placas": "cargado", "m2_segmentacion": "pendiente", "m3_keypoints": "pendiente"}}
+        salud = {"modelos": {"m1_placas": "cargado", "m2_vehiculos": "cargado", "m3_llantas": "pendiente",
+                             "m4_pasajeros": "error"}}
         resp = mock.MagicMock()
         resp.__enter__.return_value.read.return_value = json.dumps(salud).encode()
         with mock.patch("peaje.views.urllib.request.urlopen", return_value=resp):
             r = self.client.get("/estado")
         self.assertEqual(r.status_code, 200)
         for texto in ("Web", "Base de datos", "Inferencia", "Lectura de placas", "Tipo de vehículo", "Conteo de ejes",
-                      "Activo", "Pendiente de entrenamiento", "Volver a comprobar"):
+                      "Conteo de pasajeros", "Activo", "Falta el archivo del modelo", "Error al cargar",
+                      "Comprobar"):
             self.assertContains(r, texto)
 
     @override_settings(INFERENCE_URL="http://inferencia")
-    def test_tipo_de_vehiculo_activo(self):
-        salud = {"modelos": {"m1_placas": "cargado", "m2_segmentacion": "cargado", "m3_keypoints": "pendiente"}}
+    def test_los_4_modelos_activos(self):
+        salud = {"modelos": {"m1_placas": "cargado", "m2_vehiculos": "cargado", "m3_llantas": "cargado",
+                             "m4_pasajeros": "cargado"}}
         resp = mock.MagicMock()
         resp.__enter__.return_value.read.return_value = json.dumps(salud).encode()
         with mock.patch("peaje.views.urllib.request.urlopen", return_value=resp):
             r = self.client.get("/estado")
-        self.assertRegex(r.content.decode(), r"<span>Tipo de vehículo</span><b class=\"texto-estado ok\">Activo</b>")
-        self.assertRegex(r.content.decode(), r"<span>Conteo de ejes</span><b[^>]*>Pendiente de entrenamiento</b>")
+        for nombre in ("Lectura de placas", "Tipo de vehículo", "Conteo de ejes", "Conteo de pasajeros"):
+            self.assertRegex(r.content.decode(), rf"<span>{nombre}</span><b class=\"texto-estado ok\">Activo</b>")
 
     @override_settings(INFERENCE_URL="http://inferencia")
     def test_inferencia_caida(self):

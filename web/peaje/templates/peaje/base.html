@@ -14,35 +14,39 @@
 <body class="{% block clase_body %}{% endblock %}">
   {% block cabecera %}
   <header id="cabecera" class="barra-sup galaxia">
-    <div class="contenedor barra">
+    <div class="barra">
       <a class="marca" href="/">{% include "peaje/_icono.html" %}<span>Peaje IAP</span></a>
-      <button id="menu-btn" class="menu-btn" type="button" aria-label="Abrir menú" aria-expanded="false" aria-controls="menu">
+      <div id="navegacion" class="navegacion">
+        {% with ruta=request.path %}
+        <nav class="menu" aria-label="Principal">
+          {% if usuario_sesion %}
+          <a href="/" {% if ruta == "/" %}class="activo" aria-current="page"{% endif %}>{% icono "barras" %}Panel</a>
+          <a href="/caseta" {% if ruta == "/caseta" %}class="activo" aria-current="page"{% endif %}>{% icono "camara" %}Caseta</a>
+          <a href="/consulta" {% if ruta == "/consulta" %}class="activo" aria-current="page"{% endif %}>{% icono "buscar" %}Consulta</a>
+          <a href="/vehiculos" {% if ruta == "/vehiculos" %}class="activo" aria-current="page"{% endif %}>{% icono "auto" %}Vehículos</a>
+          <a href="/pasos" {% if ruta == "/pasos" %}class="activo" aria-current="page"{% endif %}>{% icono "lista" %}Pasos</a>
+          <a href="/alertas" {% if ruta == "/alertas" %}class="activo" aria-current="page"{% endif %}>{% icono "campana" %}Alertas</a>
+          <a href="/chat" {% if ruta == "/chat" %}class="activo" aria-current="page"{% endif %}>{% icono "chat" %}Chat</a>
+          {% endif %}
+          <a href="/estado" {% if ruta == "/estado" %}class="activo" aria-current="page"{% endif %}>{% icono "actividad" %}Estado</a>
+          {% if usuario_sesion.rol == "admin" %}
+          <a href="/usuarios" {% if ruta == "/usuarios" %}class="activo" aria-current="page"{% endif %}>{% icono "usuarios" %}Usuarios</a>
+          {% endif %}
+        </nav>
+        {% endwith %}
+        <div class="usuario">
+          {% if usuario_sesion %}
+            <span class="usuario-nombre" title="{{ usuario_sesion.nombre }}">{{ usuario_sesion.nombre }}</span>
+            <span class="rol">{{ usuario_sesion.rol }}</span>
+            <a class="boton claro chico" href="/logout">{% icono "salir" %}Salir</a>
+          {% else %}
+            <a class="boton claro chico" href="/login">Iniciar sesión</a>
+          {% endif %}
+        </div>
+      </div>
+      <button id="menu-btn" class="menu-btn" type="button" aria-label="Abrir menú" aria-expanded="false" aria-controls="navegacion">
         {% icono "menu" "ico ico-menu" %}{% icono "cerrar" "ico ico-cerrar" %}
       </button>
-      {% with ruta=request.path %}
-      <nav id="menu" class="menu" aria-label="Principal">
-        {% if usuario_sesion %}
-        <a href="/" {% if ruta == "/" %}class="activo" aria-current="page"{% endif %}>{% icono "barras" %}Panel</a>
-        <a href="/caseta" {% if ruta == "/caseta" %}class="activo" aria-current="page"{% endif %}>{% icono "camara" %}Caseta</a>
-        <a href="/consulta" {% if ruta == "/consulta" %}class="activo" aria-current="page"{% endif %}>{% icono "buscar" %}Consulta</a>
-        <a href="/vehiculos" {% if ruta == "/vehiculos" %}class="activo" aria-current="page"{% endif %}>{% icono "auto" %}Vehículos</a>
-        <a href="/alertas" {% if ruta == "/alertas" %}class="activo" aria-current="page"{% endif %}>{% icono "campana" %}Alertas</a>
-        {% if usuario_sesion.rol == "admin" %}
-        <a href="/usuarios" {% if ruta == "/usuarios" %}class="activo" aria-current="page"{% endif %}>{% icono "usuarios" %}Usuarios</a>
-        {% endif %}
-        {% endif %}
-        <a href="/estado" {% if ruta == "/estado" %}class="activo" aria-current="page"{% endif %}>{% icono "actividad" %}Estado</a>
-      </nav>
-      {% endwith %}
-      <div class="barra-usuario">
-        {% if usuario_sesion %}
-          <span>{{ usuario_sesion.nombre }}</span>
-          <span class="rol">{{ usuario_sesion.rol }}</span>
-          <a class="boton claro chico" href="/logout">{% icono "salir" %}Salir</a>
-        {% else %}
-          <a class="boton claro chico" href="/login">Iniciar sesión</a>
-        {% endif %}
-      </div>
     </div>
   </header>
   {% endblock %}
@@ -52,7 +56,7 @@
     <div class="contenedor">
       {% icono "alerta" %}
       <span class="texto" id="banner-texto"></span>
-      <a href="/alertas">Ver alertas</a>
+      <a href="/alertas">Ver</a>
       <button type="button" id="banner-cerrar" class="boton claro chico icono" aria-label="Cerrar aviso">{% icono "cerrar" %}</button>
     </div>
   </div>
@@ -82,11 +86,10 @@
 
   <dialog id="confirmar" class="confirmar" aria-labelledby="confirmar-titulo" aria-describedby="confirmar-texto">
     <div class="confirmar-cuerpo">
-      {% icono "alerta" %}
-      <div><h2 id="confirmar-titulo">¿Confirmar acción?</h2><p id="confirmar-texto"></p></div>
+      <h2 id="confirmar-titulo">¿Confirmar acción?</h2><p id="confirmar-texto"></p>
     </div>
     <div class="confirmar-pie">
-      <button type="button" class="boton fantasma" id="confirmar-no">Cancelar</button>
+      <button type="button" class="boton" id="confirmar-no">Cancelar</button>
       <button type="button" class="boton peligro" id="confirmar-si">Confirmar</button>
     </div>
   </dialog>
@@ -102,11 +105,19 @@
     (function () {
       // Menú hamburguesa
       var btn = document.getElementById("menu-btn"), cab = document.getElementById("cabecera");
-      if (btn) btn.addEventListener("click", function () {
-        var abierto = cab.classList.toggle("abierto");
+      function menu(abierto) {
+        if (!cab || !btn) return;
+        cab.classList.toggle("abierto", abierto);
         btn.setAttribute("aria-expanded", abierto ? "true" : "false");
         btn.setAttribute("aria-label", abierto ? "Cerrar menú" : "Abrir menú");
-      });
+      }
+      if (btn) {
+        btn.addEventListener("click", function () { menu(!cab.classList.contains("abierto")); });
+        document.getElementById("navegacion").addEventListener("click", function (e) { if (e.target.closest("a")) menu(false); });
+        document.addEventListener("keydown", function (e) { if (e.key === "Escape") menu(false); });
+        document.addEventListener("click", function (e) { if (!cab.contains(e.target)) menu(false); });
+        window.addEventListener("resize", function () { if (window.innerWidth >= 1200) menu(false); });
+      }
 
       // Toasts: se cierran solos (los de error duran más) o con el botón
       Array.prototype.forEach.call(document.querySelectorAll(".toast"), function (t) {

@@ -187,10 +187,12 @@ class PaginasProtegidasTests(TestCase):
         u = Usuario.objects.create(email_google="a@x.com", nombre="Ana Operadora", rol="operador")
         entrar(self.client, u)
         r = self.client.get("/vehiculos")
-        for texto in ("Panel", "Caseta", "Consulta", "Vehículos", "Alertas", "Estado",
+        for texto in ("Panel", "Caseta", "Consulta", "Vehículos", "Pasos", "Alertas", "Chat", "Estado",
                       "Ana Operadora", "operador", "Salir", "Peaje IAP"):
             self.assertContains(r, texto)
-        for ruta in ("/usuarios", "/pasos", "/chat", "/admin/"):
+        for ruta in ("/pasos", "/chat"):
+            self.assertContains(r, f'href="{ruta}"')
+        for ruta in ("/usuarios", "/admin/"):
             self.assertNotContains(r, f'href="{ruta}"')
 
     def test_rol_requerido(self):
@@ -220,7 +222,7 @@ class EstadoTests(TestCase):
     def test_publico_html(self):
         r = self.client.get("/estado")
         self.assertEqual(r.status_code, 200)
-        self.assertContains(r, "Estado del sistema")
+        self.assertContains(r, "<h1>Estado</h1>", html=False)
 
     def test_json(self):
         r = self.client.get("/estado?format=json")

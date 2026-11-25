@@ -2,18 +2,12 @@
 {% load iconos %}
 {% block titulo %}Panel{% endblock %}
 {% block contenido %}
-<header class="pagina-cab galaxia">
-  <div>
-    <h1>Panel</h1>
-    <p class="subtitulo">Resumen del día y pasos por el peaje en tiempo real.</p>
-  </div>
-  <div class="acciones">
-    <span id="modo" class="estado-vivo consulta">Actualización automática</span>
-    <a class="boton blanco" href="/caseta">{% icono "camara" %}Abrir caseta</a>
-  </div>
+<header class="pagina-cab">
+  <h1>Panel</h1>
+  <span id="modo" class="estado-vivo consulta">Automático</span>
 </header>
 
-<section class="grilla grilla-3 mb-4" aria-label="Indicadores de hoy">
+<section class="grilla grilla-3" aria-label="Indicadores de hoy" style="margin-bottom:var(--e-4)">
   <div class="tarjeta galaxia kpi">
     <div class="kpi-cab"><span class="kpi-etiqueta">Pasos de hoy</span>{% icono "auto" %}</div>
     <span class="kpi-valor" id="k-pasos">{{ datos.kpis.pasos_hoy }}</span>
@@ -22,22 +16,21 @@
     <div class="kpi-cab"><span class="kpi-etiqueta">Recaudación de hoy</span>{% icono "billetera" %}</div>
     <span class="kpi-valor"><small>Bs</small><span id="k-recaudacion">{{ datos.kpis.recaudacion_hoy }}</span></span>
   </div>
-  <div class="tarjeta galaxia kpi">
+  <a class="tarjeta galaxia kpi" href="/alertas">
     <div class="kpi-cab"><span class="kpi-etiqueta">Alertas sin atender</span>{% icono "campana" %}</div>
     <span class="kpi-valor" id="k-alertas">{{ datos.kpis.alertas_pendientes }}</span>
-    <a class="kpi-enlace" href="/alertas">Ver alertas{% icono "flecha" %}</a>
-  </div>
+  </a>
 </section>
 
 <div class="grilla grilla-panel">
   <section class="tarjeta">
-    <div class="tarjeta-cab"><h2>{% icono "barras" %}Pasos por día</h2><span class="tenue pequeno">Últimos 7 días</span></div>
-    <div class="grafica-caja"><canvas id="grafica" role="img" aria-label="Gráfica de barras de pasos por día en los últimos 7 días"></canvas></div>
+    <div class="tarjeta-cab"><h2>Pasos por día</h2><span class="tenue pequeno">7 días</span></div>
+    <div class="grafica-caja"><canvas id="grafica" role="img" aria-label="Pasos por día en los últimos 7 días"></canvas></div>
   </section>
   <section class="tarjeta">
-    <div class="tarjeta-cab"><h2>{% icono "lista" %}Últimos pasos</h2><span class="tenue pequeno">Hasta 10</span></div>
+    <div class="tarjeta-cab"><h2>Últimos pasos</h2><a class="pequeno" href="/pasos">Ver todos</a></div>
     <ul id="lista" class="lista-pasos" aria-live="polite"></ul>
-    <div id="sin-pasos" hidden>{% include "peaje/_vacio.html" with icono="bandeja" titulo="Todavía no hay pasos registrados" texto="Cuando la caseta reconozca una placa, el paso aparecerá aquí al instante." %}</div>
+    <div id="sin-pasos" hidden>{% include "peaje/_vacio.html" with titulo="Sin pasos registrados" %}</div>
   </section>
 </div>
 {{ datos|json_script:"datos-panel" }}
@@ -75,7 +68,11 @@
     }
     var info = el("div");
     info.appendChild(el("div", "placa", p.placa));
-    info.appendChild(el("div", "hora", (p.categoria_texto ? p.categoria_texto + " · " : "") + p.fecha + " · " + p.hora));
+    var vehiculo = [p.categoria_texto || "",
+                    p.ejes != null ? p.ejes + " ejes" : "",
+                    p.pasajeros != null ? p.pasajeros + (p.pasajeros === 1 ? " pasajero" : " pasajeros") : ""]
+      .filter(Boolean).join(" · ");
+    info.appendChild(el("div", "hora", (vehiculo ? vehiculo + " · " : "") + p.fecha + " · " + p.hora));
     li.appendChild(info);
     li.appendChild(el("span", "etiqueta e-" + p.estado, p.estado_texto));
     li.appendChild(el("span", "monto", "Bs " + p.monto));
@@ -158,7 +155,7 @@
   if (window.IAP && IAP.tiempoReal) {
     $("modo").textContent = "En vivo"; $("modo").classList.remove("consulta");
   } else {
-    $("modo").textContent = "Actualiza cada " + (POLL_MS / 1000) + " s";
+    $("modo").textContent = "Cada " + (POLL_MS / 1000) + " s";
     setInterval(consultar, POLL_MS);
   }
 })();

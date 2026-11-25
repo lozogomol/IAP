@@ -14,6 +14,7 @@ from django.db.models import F, OuterRef, Subquery
 from django.http import FileResponse, Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
+from django.utils.dateparse import parse_date
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_POST
 
@@ -206,7 +207,19 @@ def vehiculo_accion(request, pk):
 
 @login_requerido
 def pasos(request):
-    return _placeholder(request, "Pasos", "Aquí irá el historial de pasos por el peaje.")
+    """Historial de pasos (últimos 200, filtro por placa y fecha): categoría, ejes y pasajeros detectados."""
+    q = normalizar_placa(request.GET.get("q", ""))
+    try:
+        fecha = parse_date(request.GET.get("fecha", ""))
+    except ValueError:
+        fecha = None
+    lista = Paso.objects.select_related("caseta").order_by("-created_at")
+    if q:
+        lista = lista.filter(placa_normalizada__icontains=q)
+    if fecha:
+        lista = lista.filter(created_at__date=fecha)
+    return render(request, "peaje/pasos.html", {"pasos": lista[:200], "q": q,
+                                                "fecha": fecha.isoformat() if fecha else ""})
 
 
 @login_requerido
@@ -286,7 +299,7 @@ def usuario_accion(request, pk):
 
 @login_requerido
 def chat(request):
-    return _placeholder(request, "Chat", "Aquí irá el agente conversacional.")
+    return _placeholder(request, "Chat", "Agente conversacional no disponible")
 
 
 # --- Estado (público) ---------------------------------------------------------------------------
@@ -303,10 +316,11 @@ def _estado_bd():
 
 
 # Nombres visibles de los modelos (las claves siguen siendo las del endpoint /salud)
-MODELOS = [("m1_placas", "Lectura de placas"), ("m2_segmentacion", "Tipo de vehículo"),
-           ("m3_keypoints", "Conteo de ejes")]
-ESTADOS_MODELO = {"cargado": ("Activo", "ok"), "pendiente": ("Pendiente de entrenamiento", "aviso"),
-                  "cargando": ("Cargando", "aviso"), "error": ("Error al cargar", "mal")}
+MODELOS = [("m1_placas", "Lectura de placas"), ("m2_vehiculos", "Tipo de vehículo"),
+           ("m3_llantas", "Conteo de ejes"), ("m4_pasajeros", "Conteo de pasajeros")]
+ESTADOS_MODELO = {"cargado": ("Activo", "ok"), "pendiente": ("Falta el archivo del modelo", "aviso"),
+                  "sin_cargar": ("Sin cargar", "aviso"), "cargando": ("Cargando", "aviso"),
+                  "error": ("Error al cargar", "mal")}
 
 
 def _estado_inferencia():

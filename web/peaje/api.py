@@ -1,4 +1,5 @@
 """API v1. Autenticación: JWT (app móvil) o sesión web + CSRF (modo caseta y consulta en el navegador)."""
+import base64
 import logging
 import time
 
@@ -40,8 +41,8 @@ def _ms(t0):
         "Lee la placa y el tipo de vehículo del frame y devuelve SIEMPRE el resultado de ese frame, aunque no "
         "registre paso. Votación: registra con >= 2 lecturas iguales en 4 s o 1 lectura con confianza >= 0.80. "
         "Anti-duplicado: la misma placa en la misma caseta no se cobra dos veces en 30 s. "
-        "Respuesta: `lectura` {placa, confianza, categoria, confianza_categoria, latencia_ms, caja_placa, "
-        "caja_vehiculo, cajas_placas} (cajas [x1, y1, x2, y2] en píxeles del frame enviado), "
+        "Respuesta: `lectura` {placa, confianza, categoria, confianza_categoria, ejes, llantas_detectadas, "
+        "pasajeros, latencia_ms, latencia_modelos_ms, caja_placa, caja_vehiculo, cajas_placas, cajas_llantas} (cajas [x1, y1, x2, y2] en píxeles del frame enviado), "
         "`lectura.categoria` es la clase (modelo.names) del vehículo que contiene la placa leída, o del más grande y "
         "centrado si no hay placa. `accion`: `registrado` | `esperando_confirmacion` | `duplicado` | `sin_placa` | `error`, "
         "`paso` (si existe), `mensaje` (texto corto en español), `votos`/`votos_necesarios` y "
@@ -95,13 +96,19 @@ def paso_frame(request):
         "caja_placa": mejor.get("caja") if mejor else None,
         "caja_vehiculo": apuntado.get("caja_vehiculo"),
         "cajas_placas": vehiculo.get("cajas_placas") or [],
+        "cajas_llantas": vehiculo.get("cajas_llantas") or [],
+        "ejes": vehiculo.get("ejes"),
+        "llantas_detectadas": vehiculo.get("llantas_detectadas"),
+        "pasajeros": vehiculo.get("pasajeros"),
+        "detalle_ejes": vehiculo.get("detalle_ejes") or "",
         "latencia_inferencia_ms": ms_inferencia,
+        "latencia_modelos_ms": vehiculo.get("latencias") or {},
     }
     if mejor is None:
         return responder("sin_placa", "Buscando placa…", lectura)
 
     LecturaPlaca.objects.create(caseta=caseta, placa=mejor["placa"], confianza=mejor["confianza"],
-                                categoria=mejor["categoria"], ejes=mejor["ejes"])
+                                categoria=mejor["categoria"], ejes=mejor["ejes"], pasajeros=vehiculo.get("pasajeros"))
     voto = cobro.votar(caseta)
     if voto is None:
         previo = cobro.paso_reciente(caseta, mejor["placa"])
@@ -115,14 +122,17 @@ def paso_frame(request):
     paso, duplicado, info = cobro.registrar_paso(
         caseta.id, voto["placa"], usuario=request.user, confianza=voto["confianza"],
         texto_leido=mejor["texto_leido"] if mejor["placa"] == voto["placa"] else voto["placa"],
-        categoria=voto["categoria"], ejes=voto["ejes"],
+        categoria=voto["categoria"], ejes=voto["ejes"], pasajeros=voto["pasajeros"],
     )
     if duplicado:
         return _duplicado(responder, paso, lectura)
-    panel.publicar_paso(paso, imagen)  # captura + evento en tiempo real (panel y alertas)
+    # Evidencia: el frame con las personas cubiertas por su máscara (privacidad); sin personas, el frame tal cual.
+    panel.publicar_paso(paso, vehiculo.get("evidencia") or imagen)  # captura + evento en tiempo real
     cobro.limpiar_lecturas_viejas()
+    evidencia = vehiculo.get("evidencia")
     return responder("registrado", f"Registrado: {paso.get_estado_display().lower()}", lectura,
-                     paso=cobro.paso_a_dict(paso, info), votos=voto["votos"])
+                     paso=cobro.paso_a_dict(paso, info), votos=voto["votos"],
+                     captura=("data:image/jpeg;base64," + base64.b64encode(evidencia).decode()) if evidencia else None)
 
 
 def _duplicado(responder, paso, lectura):

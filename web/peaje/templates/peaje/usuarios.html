@@ -2,16 +2,13 @@
 {% load iconos %}
 {% block titulo %}Usuarios{% endblock %}
 {% block contenido %}
-<header class="pagina-cab galaxia">
-  <div>
-    <h1>Usuarios</h1>
-    <p class="subtitulo">Lista blanca de cuentas de Google con acceso, sus roles y las solicitudes pendientes.</p>
-  </div>
+<header class="pagina-cab">
+  <h1>Usuarios</h1>
 </header>
 
 <section class="seccion" aria-labelledby="t-pend">
   <div class="seccion-cab">
-    <h2 id="t-pend" class="flex">Solicitudes pendientes{% if pendientes %}<span class="contador">{{ pendientes|length }}</span>{% endif %}</h2>
+    <h2 id="t-pend">Solicitudes pendientes</h2>{% if pendientes %}<span class="contador">{{ pendientes|length }}</span>{% endif %}
   </div>
   <div class="tabla-caja">
     <table class="tabla">
@@ -28,16 +25,16 @@
                 <input type="hidden" name="accion" value="aprobar">
                 <button class="boton chico primario" type="submit">{% icono "check" %}Aprobar</button>
               </form>
-              <form method="post" action="/usuarios/{{ u.id }}" data-confirmar="{{ u.email_google }} no podrá entrar ni volver a solicitar acceso hasta que un administrador lo reactive."
+              <form method="post" action="/usuarios/{{ u.id }}" data-confirmar="{{ u.email_google }}"
                     data-confirmar-titulo="¿Rechazar la solicitud?" data-confirmar-boton="Rechazar">{% csrf_token %}
                 <input type="hidden" name="accion" value="rechazar">
-                <button class="boton chico fantasma" type="submit">{% icono "cerrar" %}Rechazar</button>
+                <button class="boton chico" type="submit">{% icono "cerrar" %}Rechazar</button>
               </form>
             </div>
           </td>
         </tr>
         {% empty %}
-        <tr class="fila-vacia"><td colspan="4" class="vacio-celda">{% include "peaje/_vacio.html" with icono="bandeja" titulo="No hay solicitudes pendientes" %}</td></tr>
+        <tr class="fila-vacia"><td colspan="4" class="vacio-celda">{% include "peaje/_vacio.html" with titulo="Sin solicitudes pendientes" %}</td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -45,7 +42,7 @@
 </section>
 
 <section class="seccion" aria-labelledby="t-usu">
-  <div class="seccion-cab"><h2 id="t-usu">Usuarios registrados</h2><span class="tenue pequeno">{{ usuarios|length }} cuenta{{ usuarios|length|pluralize }}</span></div>
+  <div class="seccion-cab"><h2 id="t-usu">Usuarios registrados</h2><span class="tenue pequeno">{{ usuarios|length }}</span></div>
   <div class="tabla-caja">
     <table class="tabla">
       <thead><tr><th scope="col">Email</th><th scope="col">Nombre</th><th scope="col">Rol</th><th scope="col">Activo</th></tr></thead>
@@ -61,7 +58,7 @@
             <form method="post" action="/usuarios/{{ u.id }}" class="acciones-fila">{% csrf_token %}
               <input type="hidden" name="accion" value="rol">
               <label class="visualmente-oculto" for="rol-{{ u.id }}">Rol de {{ u.nombre }}</label>
-              <select id="rol-{{ u.id }}" name="rol" onchange="this.form.submit()" style="min-height:36px;width:auto">
+              <select id="rol-{{ u.id }}" name="rol" onchange="this.form.submit()">
                 {% for valor, texto in roles %}<option value="{{ valor }}" {% if valor == u.rol %}selected{% endif %}>{{ texto }}</option>{% endfor %}
               </select>
               <noscript><button class="boton chico" type="submit">Guardar</button></noscript>
@@ -76,7 +73,7 @@
                     {% if u.activo %}data-confirmar="{{ u.email_google }} perderá el acceso de inmediato." data-confirmar-titulo="¿Desactivar a {{ u.nombre }}?" data-confirmar-boton="Desactivar"{% endif %}>
                 {% csrf_token %}
                 {% if u.activo %}
-                <input type="hidden" name="accion" value="desactivar"><button class="boton chico fantasma" type="submit">{% icono "power" %}Desactivar</button>
+                <input type="hidden" name="accion" value="desactivar"><button class="boton chico" type="submit">{% icono "power" %}Desactivar</button>
                 {% else %}
                 <input type="hidden" name="accion" value="activar"><button class="boton chico" type="submit">{% icono "power" %}Activar</button>
                 {% endif %}

@@ -1,39 +1,26 @@
 {% extends "peaje/base.html" %}
 {% load iconos %}
 {% block titulo %}Vehículos{% endblock %}
-{% block head %}
-<style>
-  .buscar { display: flex; gap: var(--e-2); width: 100%; }
-  .buscar input { flex: 1; min-width: 0; text-transform: uppercase; border-color: #fff; }
-  @media (min-width: 640px) { .buscar { width: auto; } .buscar input { width: 200px; flex: none; } }
-  #id_placa { text-transform: uppercase; letter-spacing: .06em; font-weight: 700; }
-</style>
-{% endblock %}
 {% block contenido %}
-<header class="pagina-cab galaxia">
-  <div>
-    <h1>Vehículos</h1>
-    <p class="subtitulo">Placas registradas, su saldo y la última vez que el sistema las reconoció.</p>
-  </div>
-  <div class="acciones">
-    <form class="buscar" method="get" action="/vehiculos" role="search">
-      <label for="q" class="visualmente-oculto">Buscar por placa</label>
-      <input id="q" name="q" value="{{ q }}" placeholder="Buscar placa" maxlength="12" autocomplete="off">
-      <button class="boton blanco icono" type="submit" aria-label="Buscar">{% icono "buscar" %}</button>
-      {% if q %}<a class="boton claro" href="/vehiculos">Limpiar</a>{% endif %}
-    </form>
-  </div>
+<header class="pagina-cab">
+  <h1>Vehículos</h1>
+  <form class="filtros" method="get" action="/vehiculos" role="search">
+    <label for="q" class="visualmente-oculto">Placa</label>
+    <input id="q" name="q" value="{{ q }}" placeholder="Placa" maxlength="12" autocomplete="off">
+    <button class="boton primario icono" type="submit" aria-label="Buscar">{% icono "buscar" %}</button>
+    {% if q %}<a class="boton" href="/vehiculos">Limpiar</a>{% endif %}
+  </form>
 </header>
 
-<section id="registro" class="tarjeta mb-4" aria-labelledby="t-registro">
-  <div class="tarjeta-cab"><h2 id="t-registro">{% icono "mas" %}Registrar vehículo</h2></div>
-  <form class="formulario en-linea" method="post" action="/vehiculos" novalidate>
+<section id="registro" class="tarjeta" aria-labelledby="t-registro" style="margin-bottom:var(--e-5)">
+  <div class="tarjeta-cab"><h2 id="t-registro">Registrar vehículo</h2></div>
+  <form class="formulario" method="post" action="/vehiculos" novalidate>
     {% csrf_token %}
     {% for campo in form %}
     <div class="campo{% if campo.errors %} con-error{% endif %}">
       <label for="{{ campo.id_for_label }}">{{ campo.label }}</label>
       {{ campo }}
-      <p class="ayuda" id="{{ campo.auto_id }}_helptext">{{ campo.help_text }}</p>
+      {% if campo.help_text %}<span class="visualmente-oculto" id="{{ campo.auto_id }}_helptext">{{ campo.help_text }}</span>{% endif %}
       {% for e in campo.errors %}<p class="error-campo" role="alert">{% icono "alerta" %}{{ e }}</p>{% endfor %}
     </div>
     {% endfor %}
@@ -43,8 +30,8 @@
 
 <section aria-label="Listado de vehículos">
   <div class="seccion-cab">
-    <h2>{% if q %}Resultados para «{{ q }}»{% else %}Todos los vehículos{% endif %}</h2>
-    <span class="tenue pequeno">{{ vehiculos|length }} vehículo{{ vehiculos|length|pluralize }}</span>
+    <h2>Registrados</h2>
+    <span class="tenue pequeno">{{ vehiculos|length }}</span>
   </div>
   <div class="tabla-caja">
     <table class="tabla">
@@ -75,7 +62,7 @@
                 <span class="sin-captura" title="Sin imagen">{% icono "imagen" %}</span>
               {% endif %}
               {% if v.ultimo_paso %}
-                <span class="pequeno num">{{ v.ultimo_paso|date:"d/m/Y" }}<br><span class="tenue">{{ v.ultimo_paso|date:"H:i:s" }}</span></span>
+                <span class="pequeno num">{{ v.ultimo_paso|date:"d/m/Y H:i" }}</span>
               {% else %}
                 <span class="tenue pequeno">Sin pasos</span>
               {% endif %}
@@ -91,10 +78,10 @@
                 <button class="boton chico" type="submit">{% icono "billetera" %}Recargar</button>
               </form>
               <form method="post" action="/vehiculos/{{ v.id }}"
-                    {% if v.activo %}data-confirmar="El vehículo {{ v.placa }} dejará de poder pasar con cobro automático: sus pasos se marcarán como no registrados." data-confirmar-titulo="¿Desactivar {{ v.placa }}?" data-confirmar-boton="Desactivar"{% endif %}>
+                    {% if v.activo %}data-confirmar="Sus pasos se marcarán como no registrados." data-confirmar-titulo="¿Desactivar {{ v.placa }}?" data-confirmar-boton="Desactivar"{% endif %}>
                 {% csrf_token %}
                 {% if v.activo %}
-                <input type="hidden" name="accion" value="desactivar"><button class="boton chico fantasma" type="submit">{% icono "power" %}Desactivar</button>
+                <input type="hidden" name="accion" value="desactivar"><button class="boton chico" type="submit">{% icono "power" %}Desactivar</button>
                 {% else %}
                 <input type="hidden" name="accion" value="activar"><button class="boton chico primario" type="submit">{% icono "power" %}Activar</button>
                 {% endif %}
@@ -105,8 +92,7 @@
         </tr>
         {% empty %}
         <tr class="fila-vacia"><td colspan="{% if es_admin %}6{% else %}5{% endif %}" class="vacio-celda">
-          {% if q %}{% include "peaje/_vacio.html" with icono="buscar" titulo="No hay vehículos con esa placa" texto="Revisa la placa o limpia la búsqueda." %}
-          {% else %}{% include "peaje/_vacio.html" with icono="auto" titulo="Todavía no hay vehículos registrados" texto="Registra el primero con el formulario de arriba." %}{% endif %}
+          {% include "peaje/_vacio.html" with titulo="Sin vehículos registrados" %}
         </td></tr>
         {% endfor %}
       </tbody>

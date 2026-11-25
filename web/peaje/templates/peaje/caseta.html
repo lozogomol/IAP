@@ -1,50 +1,55 @@
 {% extends "peaje/base.html" %}
 {% load iconos %}
 {% block titulo %}Caseta{% endblock %}
-{% block clase_body %}con-barra-accion{% endblock %}
+{% block clase_body %}pagina-caseta{% endblock %}
 {% block contenido %}
-<header class="pagina-cab galaxia">
-  <div>
-    <h1>Peaje IAP</h1>
-    <p class="subtitulo">Modo caseta: la cámara lee las placas y registra el cobro automáticamente.</p>
+<div class="caseta">
+  <header class="pagina-cab"><h1>Caseta</h1></header>
+  <div id="aviso" class="aviso" role="alert" hidden>{% icono "alerta" %}<span id="aviso-texto"></span></div>
+
+  <div id="video-caja" class="video-caja">
+    <video id="video" playsinline muted autoplay aria-label="Vista de la cámara"></video>
+    <canvas id="cajas" class="cajas-video" aria-hidden="true"></canvas>
+    <div id="indicacion" class="indicacion">
+      {% icono "camara" %}<span id="indicacion-texto">Cámara detenida</span>
+      <button id="btn-reanudar" class="boton primario" type="button" hidden>{% icono "play" %}<span>Reanudar</span></button>
+    </div>
+    <div class="video-chip en-vivo">EN VIVO · <span id="restante">60</span> s</div>
+    <div id="vivo" class="video-chip vivo-chip e-inactivo" aria-live="polite"><span id="vivo-estado">Detenido</span></div>
   </div>
-</header>
-<div id="aviso" class="aviso" role="alert" hidden>{% icono "alerta" %}<span id="aviso-texto"></span></div>
-<div class="grilla grilla-caseta">
-  <section aria-label="Cámara">
-    <div id="video-caja" class="video-caja">
-      <video id="video" playsinline muted autoplay aria-label="Vista de la cámara"></video>
-      <canvas id="cajas" class="cajas-video" aria-hidden="true"></canvas>
-      <div id="indicacion" class="indicacion">
-        {% icono "camara" %}<span id="indicacion-texto">Pulsa «Iniciar reconocimiento» para abrir la cámara trasera.</span>
-        <button id="btn-reanudar" class="boton primario" type="button" hidden>{% icono "play" %}<span>Reanudar</span></button>
-      </div>
-      <div class="en-vivo">EN VIVO · <span id="restante">60</span> s</div>
+
+  <section class="caseta-tarjeta" aria-live="polite" aria-label="Último paso">
+    <div class="fila-placa">
+      <div id="placa" class="placa-grande">———</div>
+      <span id="estado" class="etiqueta gris">Sin pasos</span>
     </div>
-    <div id="vivo" class="franja-vivo e-inactivo" aria-live="polite" aria-label="Lectura en vivo">
-      <div class="vivo-cab"><span class="vivo-punto"></span><span class="vivo-titulo">En vivo</span>
-        <span id="vivo-estado" class="vivo-estado">Detenido</span></div>
-      <div class="vivo-datos">
-        <div><b id="vivo-placa">———</b><span>Placa leída</span></div>
-        <div><b id="vivo-tipo">–</b><span>Tipo de vehículo apuntado</span></div>
-      </div>
-    </div>
-    <div class="barra-accion">
-      <button id="btn" class="boton primario grande" type="button">{% icono "play" %}<span>Iniciar reconocimiento</span></button>
-      <span class="discreto" id="diagnostico">Latencia: <span id="latencia">–</span> · Frames enviados: <span id="contador">0</span> · Confianza placa: <span id="conf-placa">–</span> · tipo: <span id="conf-tipo">–</span><span id="ultimo-error-caja" hidden> · Último error: <span id="ultimo-error"></span></span></span>
+    <dl class="datos">
+      <div><dt>Categoría</dt><dd id="categoria">–</dd></div>
+      <div><dt>Ejes</dt><dd id="ejes">–</dd></div>
+      <div><dt>Pasajeros</dt><dd id="pasajeros">–</dd></div>
+      <div><dt>Monto</dt><dd id="monto">–</dd></div>
+    </dl>
+    <div class="solo-escritorio">
+      <div id="captura" class="captura-grande">{% icono "imagen" %}</div>
+      <ul class="lista-datos" style="margin-top:12px">
+        <li><span>Hora</span><b id="hora" class="num">–</b></li>
+      </ul>
+      <p id="lectura" class="tenue pequeno" style="margin-top:12px"></p>
     </div>
   </section>
-  <section class="tarjeta galaxia resultado" aria-live="polite" aria-label="Último paso registrado">
-    <div class="resultado-etiqueta">Último paso registrado</div>
-    <div id="placa" class="placa-grande">———</div>
-    <span id="estado" class="etiqueta gris">Sin pasos</span>
-    <div class="datos-par">
-      <div class="ancho"><b id="categoria">–</b><span>Categoría detectada</span></div>
-      <div><b id="monto">–</b><span>Monto cobrado</span></div>
-      <div><b id="hora">–</b><span>Hora</span></div>
-    </div>
-    <div id="captura" class="captura-grande">{% icono "imagen" %}<span>Aquí aparecerá la captura</span></div>
-    <p id="lectura" class="nota-resultado"></p>
+
+  <div class="barra-accion">
+    <button id="btn" class="boton primario grande" type="button">{% icono "play" %}<span>Iniciar</span></button>
+  </div>
+
+  <section class="caseta-extra solo-escritorio" aria-label="Lectura en vivo">
+    <ul class="lista-datos">
+      <li><span>Placa leída</span><b id="vivo-placa" class="placa">———</b></li>
+      <li><span>Tipo</span><b id="vivo-tipo">–</b></li>
+      <li><span>Ejes</span><b id="vivo-ejes">–</b></li>
+      <li><span>Pasajeros</span><b id="vivo-pasajeros">–</b></li>
+    </ul>
+    <p class="diagnostico" id="diagnostico" style="margin-top:12px">Latencia <span id="latencia">–</span> · Frames <span id="contador">0</span> · Placa <span id="conf-placa">–</span> · Tipo <span id="conf-tipo">–</span> · <span id="lat-modelos">–</span><span id="ultimo-error-caja" hidden> · Error: <span id="ultimo-error"></span></span></p>
   </section>
 </div>
 <canvas id="lienzo" hidden></canvas>
@@ -90,7 +95,7 @@
   function modoBoton(activo) {
     btn.innerHTML = "";
     btn.appendChild($(activo ? "ico-detener" : "ico-play").content.cloneNode(true));
-    var t = document.createElement("span"); t.textContent = activo ? "Detener" : "Iniciar reconocimiento";
+    var t = document.createElement("span"); t.textContent = activo ? "Detener" : "Iniciar";
     btn.appendChild(t);
     btn.classList.toggle("primario", !activo);
     btn.classList.toggle("peligro", activo);
@@ -99,20 +104,30 @@
   // --- Franja "En vivo" y diagnóstico -----------------------------------------------------------------
   // tipo: inactivo | buscando | leyendo | registrado | duplicado | error
   function estadoVivo(tipo, texto) {
-    $("vivo").className = "franja-vivo e-" + tipo;
+    $("vivo").className = "video-chip vivo-chip e-" + tipo;
     $("vivo-estado").textContent = texto;
   }
 
   function pct(c) { return c == null ? "–" : Math.round(c * 100) + " %"; }
 
-  // El tipo es la clase del vehículo apuntado (el de la placa leída, o el más grande y centrado), tal cual
-  // modelo.names (auto, bus, camion, minibus, moto). El porcentaje va solo en el diagnóstico.
+  function dato(v) { return v == null ? "–" : String(v); }
+
+  // El tipo es la clase del vehículo apuntado (el de la placa leída, o el más grande y centrado): auto, bus,
+  // camion, minibus o moto. Ejes (M3) y pasajeros (M4) son los del vehículo principal; "–" = sin dato.
+  // Los porcentajes y las latencias por modelo van solo en el diagnóstico.
   function mostrarLectura(lec) {
     lec = lec || {};
     $("vivo-placa").textContent = lec.placa || "———";
     $("vivo-tipo").textContent = lec.categoria || "–";
+    $("vivo-ejes").textContent = dato(lec.ejes);
+    $("vivo-ejes").title = lec.detalle_ejes || "";
+    $("vivo-pasajeros").textContent = dato(lec.pasajeros);
     $("conf-placa").textContent = lec.placa ? pct(lec.confianza) : "–";
     $("conf-tipo").textContent = lec.categoria ? pct(lec.confianza_categoria) : "–";
+    var m = lec.latencia_modelos_ms || {};
+    $("lat-modelos").textContent = ["m1", "m2", "m3", "m4"].map(function (k) {
+      return k.toUpperCase() + " " + (m[k] == null ? "–" : m[k] + " ms");
+    }).join(" · ");
   }
 
   function registrarError(texto) {
@@ -144,8 +159,10 @@
       ctx.fillStyle = "#fff"; ctx.fillText(etiqueta, x + 5 - grosor / 2, ty + 14);
     }
     if (lec.caja_vehiculo) {
-      caja(lec.caja_vehiculo, "#dc2626", lec.categoria || "", 3);
+      var etiqueta = (lec.categoria || "") + (lec.ejes != null ? " · " + lec.ejes + " ejes" : "");
+      caja(lec.caja_vehiculo, "#dc2626", etiqueta, 3);
     }
+    (lec.cajas_llantas || []).forEach(function (c) { caja(c, "#ea580c", "", 2); });
     (lec.cajas_placas || []).forEach(function (c) {
       var esLeida = lec.caja_placa && c.join() === lec.caja_placa.join();
       if (!esLeida) caja(c, "#f59e0b", "", 2);
@@ -189,7 +206,7 @@
     if (flujo) { flujo.getTracks().forEach(function (t) { t.stop(); }); flujo = null; }
     video.srcObject = null;
     $("video-caja").classList.remove("grabando");
-    $("indicacion-texto").textContent = motivo || "Pulsa «Iniciar reconocimiento» para abrir la cámara trasera.";
+    $("indicacion-texto").textContent = motivo || "Cámara detenida";
     $("btn-reanudar").hidden = !reanudable;
     $("indicacion").hidden = false;
     modoBoton(false);
@@ -201,8 +218,7 @@
     var restante = Math.max(0, DURACION_S - Math.floor((Date.now() - inicio) / 1000));
     $("restante").textContent = restante;
     if (restante <= 0) {
-      detener("Reconocimiento en pausa: se detiene solo tras " + DURACION_S + " s para ahorrar batería y datos (" +
-              enviadas + " frames enviados).", true);
+      detener("En pausa tras " + DURACION_S + " s", true);
     }
   }
 
@@ -240,23 +256,27 @@
     }, "image/jpeg", CALIDAD);
   }
 
-  function ponerCaptura(blob) {
-    if (urlCaptura) URL.revokeObjectURL(urlCaptura);
-    urlCaptura = URL.createObjectURL(blob);
+  // La tarjeta muestra la evidencia guardada (personas cubiertas por su máscara); si no hubo personas, el frame.
+  function ponerCaptura(blob, urlEvidencia) {
+    if (urlCaptura) { URL.revokeObjectURL(urlCaptura); urlCaptura = null; }
     var img = document.createElement("img");
-    img.src = urlCaptura; img.alt = "Captura del paso";
+    if (urlEvidencia) { img.src = urlEvidencia; }
+    else { urlCaptura = URL.createObjectURL(blob); img.src = urlCaptura; }
+    img.alt = "Captura del paso";
     $("captura").innerHTML = ""; $("captura").appendChild(img);
   }
 
-  function mostrarPaso(p, blob) {
+  function mostrarPaso(p, blob, captura) {
     $("placa").textContent = p.placa;
     $("estado").textContent = p.estado_texto;
     $("estado").className = "etiqueta e-" + p.estado;
     $("categoria").textContent = p.categoria_texto;
+    $("ejes").textContent = dato(p.ejes);
+    $("pasajeros").textContent = dato(p.pasajeros);
     $("monto").textContent = "Bs " + p.monto_cobrado;
     $("hora").textContent = new Date(p.created_at).toLocaleTimeString("es-BO",
       { hour: "2-digit", minute: "2-digit", second: "2-digit", timeZone: "America/La_Paz" });
-    ponerCaptura(blob);
+    ponerCaptura(captura ? null : blob, captura);
     $("lectura").textContent = (p.nota || "Paso registrado.") +
       (p.fuente_categoria === "registro" ? " Categoría tomada del registro del vehículo." : "");
   }
@@ -280,13 +300,13 @@
     var tipo = { sin_placa: "buscando", esperando_confirmacion: "leyendo",
                  registrado: "registrado", duplicado: "duplicado" }[d.accion] || "buscando";
     estadoVivo(tipo, d.mensaje);
-    if (d.accion === "registrado" && d.paso) mostrarPaso(d.paso, blob);
+    if (d.accion === "registrado" && d.paso) mostrarPaso(d.paso, blob, d.captura);
   }
 
-  btn.addEventListener("click", function () { flujo ? detener("Detenido.") : iniciar(); });
+  btn.addEventListener("click", function () { flujo ? detener("Cámara detenida") : iniciar(); });
   $("btn-reanudar").addEventListener("click", iniciar);
   document.addEventListener("visibilitychange", function () {
-    if (document.hidden && flujo) detener("Detenido al salir de la página.", true);
+    if (document.hidden && flujo) detener("En pausa", true);
   });
   window.addEventListener("resize", limpiarCajas);
   var problema = soporte();

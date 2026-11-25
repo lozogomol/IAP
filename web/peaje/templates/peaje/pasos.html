@@ -1,0 +1,57 @@
+{% extends "peaje/base.html" %}
+{% load iconos %}
+{% block titulo %}Pasos{% endblock %}
+{% block contenido %}
+<header class="pagina-cab">
+  <h1>Pasos</h1>
+  <form class="filtros" method="get" action="/pasos" role="search">
+    <label for="q" class="visualmente-oculto">Placa</label>
+    <input id="q" name="q" value="{{ q }}" placeholder="Placa" maxlength="12" autocomplete="off">
+    <label for="fecha" class="visualmente-oculto">Fecha</label>
+    <input id="fecha" name="fecha" type="date" value="{{ fecha }}">
+    <button class="boton primario icono" type="submit" aria-label="Filtrar">{% icono "buscar" %}</button>
+    {% if q or fecha %}<a class="boton" href="/pasos">Limpiar</a>{% endif %}
+  </form>
+</header>
+
+<div class="tabla-caja">
+  <table class="tabla">
+    <thead>
+      <tr>
+        <th scope="col">Evidencia</th>
+        <th scope="col">Placa</th>
+        <th scope="col">Categoría</th>
+        <th scope="col">Ejes</th>
+        <th scope="col">Pasajeros</th>
+        <th scope="col" class="derecha">Monto</th>
+        <th scope="col">Estado</th>
+        <th scope="col">Hora</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for p in pasos %}
+      <tr>
+        <td data-label="Evidencia">
+          {% if p.imagen_url %}
+          <button type="button" class="mini-btn" data-ampliar="{{ p.imagen_url }}"
+                  data-titulo="{{ p.placa_normalizada }} · {{ p.created_at|date:'d/m/Y H:i:s' }}" aria-label="Ampliar evidencia de {{ p.placa_normalizada }}">
+            <img src="{{ p.imagen_url }}" alt="" loading="lazy"></button>
+          {% else %}<span class="sin-captura" title="Sin imagen">{% icono "imagen" %}</span>{% endif %}
+        </td>
+        <td data-label="Placa" class="placa">{{ p.placa_normalizada }}</td>
+        <td data-label="Categoría">{{ p.get_categoria_detectada_display|default:"–" }}</td>
+        <td data-label="Ejes" class="num">{{ p.ejes_detectados|default_if_none:"–" }}</td>
+        <td data-label="Pasajeros" class="num">{{ p.pasajeros|default_if_none:"–" }}</td>
+        <td data-label="Monto" class="derecha num">Bs {{ p.monto }}</td>
+        <td data-label="Estado"><span class="etiqueta e-{{ p.estado }}">{{ p.get_estado_display }}</span></td>
+        <td data-label="Hora" class="num">{{ p.created_at|date:"d/m/Y H:i:s" }}</td>
+      </tr>
+      {% empty %}
+      <tr class="fila-vacia"><td colspan="8" class="vacio-celda">
+        {% include "peaje/_vacio.html" with titulo="Sin pasos registrados" %}
+      </td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

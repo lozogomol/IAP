@@ -2,33 +2,29 @@
 {% load iconos %}
 {% block titulo %}Alertas{% endblock %}
 {% block contenido %}
-<header class="pagina-cab galaxia">
-  <div>
-    <h1>Alertas</h1>
-    <p class="subtitulo">Se genera una alerta cuando pasa una placa no registrada —posible evasión— o un vehículo sin saldo suficiente.</p>
-  </div>
-</header>
-
+<header class="pagina-cab">
+  <h1>Alertas</h1>
 <nav class="segmentos" aria-label="Filtrar alertas">
   <a href="/alertas" {% if filtro == "pendientes" %}class="activo" aria-current="page"{% endif %}>Pendientes{% if n_pendientes %}<span class="contador">{{ n_pendientes }}</span>{% endif %}</a>
   <a href="/alertas?filtro=atendidas" {% if filtro == "atendidas" %}class="activo" aria-current="page"{% endif %}>Atendidas</a>
 </nav>
+</header>
 
 <div class="tabla-caja">
   <table class="tabla">
     <thead>
       <tr>
-        <th scope="col">Captura</th>
+        <th scope="col">Evidencia</th>
         <th scope="col">Placa</th>
         <th scope="col">Tipo</th>
-        <th scope="col">Fecha y hora</th>
+        <th scope="col">Hora</th>
         <th scope="col">{% if filtro == "pendientes" %}Acción{% else %}Estado{% endif %}</th>
       </tr>
     </thead>
     <tbody>
       {% for a in alertas %}
       <tr>
-        <td data-label="Captura">
+        <td data-label="Evidencia">
           {% if a.paso.imagen_url %}
           <button type="button" class="mini-btn" data-ampliar="{{ a.paso.imagen_url }}"
                   data-titulo="{{ a.paso.placa_normalizada }} · {{ a.created_at|date:'d/m/Y H:i:s' }}" aria-label="Ampliar captura de {{ a.paso.placa_normalizada }}">
@@ -37,7 +33,7 @@
         </td>
         <td data-label="Placa" class="placa">{{ a.paso.placa_normalizada }}</td>
         <td data-label="Tipo"><span class="etiqueta e-{{ a.tipo }}">{{ a.get_tipo_display }}</span></td>
-        <td data-label="Fecha y hora" class="num">{{ a.created_at|date:"d/m/Y" }} · {{ a.created_at|date:"H:i:s" }}</td>
+        <td data-label="Hora" class="num">{{ a.created_at|date:"d/m/Y H:i:s" }}</td>
         <td data-label="{% if a.atendida %}Estado{% else %}Acción{% endif %}">
           {% if a.atendida %}<span class="etiqueta gris">Atendida</span>{% else %}
           <form method="post" action="/alertas/{{ a.id }}/atender">{% csrf_token %}
@@ -48,8 +44,8 @@
       </tr>
       {% empty %}
       <tr class="fila-vacia"><td colspan="5" class="vacio-celda">
-        {% if filtro == "pendientes" %}{% include "peaje/_vacio.html" with icono="escudo" titulo="No hay alertas pendientes" texto="Cuando pase una placa no registrada o sin saldo, aparecerá aquí." %}
-        {% else %}{% include "peaje/_vacio.html" with icono="bandeja" titulo="Todavía no hay alertas atendidas" %}{% endif %}
+        {% if filtro == "pendientes" %}{% include "peaje/_vacio.html" with titulo="No hay alertas pendientes" %}
+        {% else %}{% include "peaje/_vacio.html" with titulo="Sin alertas atendidas" %}{% endif %}
       </td></tr>
       {% endfor %}
     </tbody>

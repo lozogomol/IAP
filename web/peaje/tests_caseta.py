@@ -5,8 +5,13 @@ from datetime import timedelta
 from decimal import Decimal
 from unittest import mock
 
+import base64
+
 import requests
 
+from pathlib import Path
+
+from django.conf import settings
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.utils import timezone
@@ -57,8 +62,30 @@ class InterpretarTests(TestCase):
                  "categoria": "minibus", "confianza_categoria": 88.1, "caja_vehiculo": [1, 2, 3, 4], "ejes": None}
         lec = interpretar(datos)
         self.assertEqual((lec[0]["categoria"], lec[0]["ejes"], lec[0]["caja"]), ("minibus", None, [5, 6, 7, 8]))
-        self.assertEqual(interpretar_vehiculo(datos), {"clase": "minibus", "confianza_clase": 0.881,
-                                                       "caja_vehiculo": [1, 2, 3, 4], "cajas_placas": [[5, 6, 7, 8]]})
+        v = interpretar_vehiculo(datos)
+        self.assertEqual((v["clase"], v["confianza_clase"], v["caja_vehiculo"], v["cajas_placas"], v["ejes"],
+                          v["pasajeros"], v["evidencia"]),
+                         ("minibus", 0.881, [1, 2, 3, 4], [[5, 6, 7, 8]], None, None, None))
+
+    def test_respuesta_completa_m1_a_m4(self):
+        evidencia = b"\xff\xd8\xff\xe0cubierta"
+        datos = {"placa": "2451KTP", "confianza": 93.4, "placas": [{"texto": "2451KTP", "confianza_lectura": 93.4}],
+                 "categoria": "camion", "confianza_categoria": 90, "ejes": 3, "llantas_detectadas": 5,
+                 "pasajeros": 2, "latencia_ms": {"total": 900, "m1": 40, "m2": 300, "m3": 200, "m4": 250},
+                 "cajas": {"llantas": [{"caja": [1, 2, 3, 4], "centro": [2, 3]}], "personas": [[5, 5, 9, 9]]},
+                 "detalle": {"motivo_ejes": "5 llantas del lado cercano en 3 grupo(s)"},
+                 "evidencia": "data:image/jpeg;base64," + base64.b64encode(evidencia).decode()}
+        v = interpretar_vehiculo(datos)
+        self.assertEqual((v["ejes"], v["llantas_detectadas"], v["pasajeros"], v["cajas_llantas"], v["evidencia"]),
+                         (3, 5, 2, [[1, 2, 3, 4]], evidencia))
+        self.assertEqual(v["latencias"], {"m1": 40, "m2": 300, "m3": 200, "m4": 250})
+        self.assertIn("3 grupo", v["detalle_ejes"])
+        self.assertEqual(interpretar(datos)[0]["ejes"], 3)
+
+    def test_datos_invalidos_no_se_inventan(self):
+        v = interpretar_vehiculo({"ejes": 40, "pasajeros": -1, "evidencia": "no-es-imagen", "cajas": "x",
+                                  "latencia_ms": None})
+        self.assertEqual((v["ejes"], v["pasajeros"], v["evidencia"], v["cajas_llantas"]), (None, None, None, []))
 
     def test_cada_placa_usa_su_propio_vehiculo(self):
         """La clase es la del vehículo que contiene la placa leída, no la global ni la de mayor porcentaje."""
@@ -122,6 +149,13 @@ class VotacionTests(TestCase):
         self._leer("2451KTP", 0.7)
         self.assertIsNone(cobro.votar(self.caseta))
 
+    def test_ejes_y_pasajeros_mas_repetidos(self):
+        for ejes, pasajeros in ((3, 1), (3, 2), (2, 2), (None, None)):
+            LecturaPlaca.objects.create(caseta=self.caseta, placa="4471LCH", confianza=0.7,
+                                        categoria="camion", ejes=ejes, pasajeros=pasajeros)
+        v = cobro.votar(self.caseta)
+        self.assertEqual((v["ejes"], v["pasajeros"]), (3, 2))
+
     def test_otra_caseta_no_cuenta(self):
         otra = Caseta.objects.exclude(pk=self.caseta.pk).first()
         LecturaPlaca.objects.create(caseta=otra, placa="2451KTP", confianza=0.7)
@@ -144,6 +178,21 @@ class RegistrarPasoTests(TestCase):
     def test_usa_categoria_de_inferencia_si_llega(self):
         paso, _, info = cobro.registrar_paso(self.caseta.id, "3876LBD", categoria="camion", ejes=3)
         self.assertEqual((paso.monto, info["fuente_categoria"]), (Decimal("30"), "inferencia"))
+
+    def test_tarifa_categoria_mas_ejes_detectados(self):
+        self.assertEqual(cobro._tarifa("camion", 3), Decimal("30"))
+        self.assertEqual(cobro._tarifa("camion", None), Decimal("20"))  # sin ejes: la mínima de la categoría
+        self.assertEqual(cobro._tarifa("camion", 9), Decimal("60"))     # sin tarifa propia: la mayor que no supera
+        self.assertEqual(cobro._tarifa("bus", 4), Decimal("35"))
+        self.assertEqual(cobro._tarifa("auto", 3), Decimal("10"))
+        self.assertIsNone(cobro._tarifa("", 2))
+
+    def test_guarda_ejes_y_pasajeros_y_cobra_por_ejes(self):
+        Vehiculo.objects.filter(placa="3876LBD").update(saldo=Decimal("100"))
+        paso, _, info = cobro.registrar_paso(self.caseta.id, "3876LBD", categoria="camion", ejes=4, pasajeros=2)
+        self.assertEqual((paso.monto, paso.ejes_detectados, paso.pasajeros), (Decimal("40"), 4, 2))
+        d = cobro.paso_a_dict(paso, info)
+        self.assertEqual((d["ejes"], d["ejes_tarifa"], d["pasajeros"], d["tarifa"]), (4, 4, 2, "40.00"))
 
     def test_categoria_detectada_sin_ejes_usa_2_ejes(self):
         # 3876LBD está registrado como auto; M2 detecta minibus y M3 aún no existe → tarifa minibus/2 ejes
@@ -240,6 +289,32 @@ class ApiFrameTests(TestCase):
         self.assertEqual((d["categoria"], d["confianza_categoria"], d["caja_vehiculo"]),
                          ("auto", 0.55, [400, 100, 600, 300]))
 
+    def test_registra_ejes_pasajeros_y_evidencia_cubierta(self):
+        """El paso guarda ejes y pasajeros, cobra por ejes y la captura es la evidencia con personas cubiertas."""
+        evidencia = b"\xff\xd8\xff\xe0personas-cubiertas"
+        vehiculo = {**SIN_VEHICULO, "clase": "camion", "ejes": 3, "pasajeros": 1, "llantas_detectadas": 4,
+                    "cajas_llantas": [[1, 2, 3, 4]], "latencias": {"m1": 1, "m2": 2, "m3": 3, "m4": 4},
+                    "evidencia": evidencia}
+        d = self._frame([_lectura("3876LBD", 0.9, categoria="camion", ejes=3)], vehiculo).json()
+        self.assertEqual(d["accion"], "registrado")
+        lec, p = d["lectura"], d["paso"]
+        self.assertEqual((lec["ejes"], lec["pasajeros"], lec["llantas_detectadas"], lec["cajas_llantas"]),
+                         (3, 1, 4, [[1, 2, 3, 4]]))
+        self.assertEqual(lec["latencia_modelos_ms"], {"m1": 1, "m2": 2, "m3": 3, "m4": 4})
+        self.assertEqual((p["categoria"], p["ejes"], p["pasajeros"], p["tarifa"]), ("camion", 3, 1, "30.00"))
+        self.assertEqual(base64.b64decode(d["captura"].split(",", 1)[1]), evidencia)
+        paso = Paso.objects.get(pk=p["id"])
+        self.assertEqual((paso.ejes_detectados, paso.pasajeros), (3, 1))
+        with open(Path(settings.MEDIA_ROOT) / paso.imagen_url.removeprefix("/"), "rb") as f:
+            self.assertEqual(f.read(), evidencia)  # nunca el frame original con rostros
+
+    def test_sin_personas_guarda_el_frame(self):
+        d = self._frame([_lectura("3876LBD", 0.9)]).json()
+        self.assertIsNone(d["captura"])
+        paso = Paso.objects.get(pk=d["paso"]["id"])
+        with open(Path(settings.MEDIA_ROOT) / paso.imagen_url.removeprefix("/"), "rb") as f:
+            self.assertEqual(f.read(), b"\xff\xd8\xff\xe0falso")
+
     def test_esperando_confirmacion_y_registrado(self):
         d = self._frame([_lectura("3876LBD", 0.7, caja=[1, 2, 3, 4])]).json()
         self.assertEqual((d["accion"], d["mensaje"], d["votos"], d["votos_necesarios"], d["paso"]),
@@ -326,6 +401,30 @@ class ConsultaTests(TestCase):
     def _c(self, placa):
         return self.client.get("/api/v1/vehiculos/consulta", {"placa": placa}).json()
 
+    def test_ultimo_paso_con_categoria_ejes_y_pasajeros(self):
+        cobro.registrar_paso(Caseta.objects.first().id, "3876LBD", categoria="auto", ejes=2, pasajeros=3)
+        u = self._c("3876LBD")["ultimo_paso"]
+        self.assertEqual((u["categoria"], u["categoria_texto"], u["ejes"], u["pasajeros"]), ("auto", "Auto", 2, 3))
+
+    def test_historial_de_pasos(self):
+        caseta = Caseta.objects.first()
+        cobro.registrar_paso(caseta.id, "3876LBD", categoria="camion", ejes=3, pasajeros=2)
+        cobro.registrar_paso(caseta.id, "2451KTP", categoria="moto")
+        r = self.client.get("/pasos")
+        self.assertContains(r, "<h1>Pasos</h1>", html=False)
+        self.assertContains(r, '<td data-label="Ejes" class="num">3</td>', html=False)
+        self.assertContains(r, '<td data-label="Pasajeros" class="num">2</td>', html=False)
+        self.assertContains(r, '<td data-label="Pasajeros" class="num">–</td>', html=False)  # sin dato
+        self.assertContains(r, "Camión")
+        r = self.client.get("/pasos?q=2451")
+        self.assertContains(r, "2451KTP")
+        self.assertNotContains(r, "3876LBD")
+        r = self.client.get("/pasos?fecha=" + timezone.localdate().isoformat())
+        self.assertContains(r, "2451KTP")
+        r = self.client.get("/pasos?fecha=2000-01-01")
+        self.assertContains(r, "Sin pasos registrados")
+        self.assertEqual(self.client.get("/pasos?fecha=2026-13-45").status_code, 200)
+
     def test_cuatro_estados(self):
         self.assertEqual(self._c("3876-lbd")["estado"], "habilitada")
         self.assertEqual(self._c("1987FHK")["estado"], "saldo_insuficiente")
@@ -342,10 +441,10 @@ class ConsultaTests(TestCase):
         self.assertEqual(r.json()["consulta"]["estado"], "habilitada")
 
     def test_paginas(self):
-        self.assertContains(self.client.get("/consulta"), "Consulta de placa")
+        self.assertContains(self.client.get("/consulta"), "<h1>Consulta</h1>", html=False)
         r = self.client.get("/caseta")
-        self.assertContains(r, "Modo caseta")
-        self.assertContains(r, "Iniciar reconocimiento")
+        self.assertContains(r, "<h1>Caseta</h1>", html=False)
+        self.assertContains(r, "Iniciar")
         self.assertContains(r, 'facingMode: { ideal: "environment" }')
         self.assertNotContains(r, "<select")  # sin selector de caseta
 

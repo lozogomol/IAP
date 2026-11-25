@@ -7,12 +7,16 @@ Respuesta esperada (los campos que falten se toleran):
                  "categoria": "auto", "confianza_categoria": 91.2, "caja_vehiculo": [x1, y1, x2, y2]}],
      "categoria": "auto", "confianza_categoria": 91.2, "caja_vehiculo": [x1, y1, x2, y2], "ejes": null}
 
-`categoria` la da M2: es la clase del VEHÍCULO APUNTADO, tal cual `modelo.names` (auto, bus, camion, minibus, moto).
-Cada placa trae el vehículo que la contiene, así que la clase que se muestra es la del vehículo de la placa leída;
-el bloque global (vehículo de la placa leída por el servidor, o el más grande y centrado) solo se usa si la placa no
-trae el suyo o no hay placa válida. `ejes` llegará con M3.
+`categoria` la da M2: es la clase del VEHÍCULO APUNTADO, ya en el español del sistema (auto, bus, camion, minibus,
+moto). Cada placa trae el vehículo que la contiene, así que la clase que se muestra es la del vehículo de la placa
+leída; el bloque global (vehículo de la placa leída por el servidor, o el más grande y centrado) solo se usa si la
+placa no trae el suyo o no hay placa válida. Del vehículo principal llegan también `ejes` (M3, null si no se pudo
+contar), `llantas_detectadas`, `pasajeros` (M4), `latencia_ms` por modelo, `cajas` y `evidencia` (el frame con las
+personas cubiertas por su máscara; null si no había personas).
 Las confianzas pueden venir en 0..1 o en 0..100: aquí se normalizan a 0..1.
 """
+import base64
+import binascii
 import time
 
 import requests
@@ -70,10 +74,44 @@ def _vehiculo(datos):
     }
 
 
+def _entero(valor, minimo=0, maximo=99):
+    try:
+        v = int(valor)
+    except (TypeError, ValueError):
+        return None
+    return v if minimo <= v <= maximo else None
+
+
+def _evidencia(valor):
+    """Data URL JPEG de la evidencia (personas cubiertas) → bytes, o None."""
+    if not isinstance(valor, str) or not valor.startswith("data:image/"):
+        return None
+    try:
+        return base64.b64decode(valor.split(",", 1)[1], validate=True)
+    except (IndexError, ValueError, binascii.Error):
+        return None
+
+
 def interpretar_vehiculo(datos):
-    """Datos del frame que no dependen de que la placa sea válida: vehículo apuntado (M2) y cajas de placas."""
+    """Datos del frame que no dependen de que la placa sea válida: vehículo principal (M2), ejes (M3), pasajeros
+    (M4), cajas, latencias por modelo y la evidencia con las personas cubiertas."""
     placas = [p for p in datos.get("placas") or [] if isinstance(p, dict)]
-    return {**_vehiculo(datos), "cajas_placas": [c for c in (_caja(p.get("caja")) for p in placas) if c]}
+    cajas = datos.get("cajas") if isinstance(datos.get("cajas"), dict) else {}
+    llantas = [l for l in cajas.get("llantas") or [] if isinstance(l, dict)]
+    lat = datos.get("latencia_ms") if isinstance(datos.get("latencia_ms"), dict) else {}
+    _, ejes = _categoria_ejes(datos)
+    return {
+        **_vehiculo(datos),
+        "cajas_placas": [c for c in (_caja(p.get("caja")) for p in placas) if c],
+        "cajas_llantas": [c for c in (_caja(l.get("caja")) for l in llantas) if c],
+        "ejes": ejes,
+        "llantas_detectadas": _entero(datos.get("llantas_detectadas")),
+        "pasajeros": _entero(datos.get("pasajeros")),
+        "latencias": {k: _entero(lat.get(k), maximo=10 ** 6) for k in ("m1", "m2", "m3", "m4")},
+        "detalle_ejes": str((datos.get("detalle") or {}).get("motivo_ejes") or "")[:200]
+        if isinstance(datos.get("detalle"), dict) else "",
+        "evidencia": _evidencia(datos.get("evidencia")),
+    }
 
 
 def interpretar(datos):

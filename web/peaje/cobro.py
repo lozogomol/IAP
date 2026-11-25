@@ -14,7 +14,6 @@ ANTIDUPLICADO = timedelta(seconds=30)
 MIN_VOTOS = 2
 CONFIANZA_SOLA = 0.80  # una sola lectura con confianza >= 0.80 basta
 CERO = Decimal("0")
-EJES_POR_DEFECTO = 2  # mientras no exista M3 (conteo de ejes), la tarifa de la categoría detectada usa 2 ejes
 
 
 # --- Votación entre frames ----------------------------------------------------------------------
@@ -23,7 +22,7 @@ def votar(caseta, ahora=None):
     """Placa ganadora entre las lecturas de la caseta de los últimos 4 s, o None si aún no hay consenso.
 
     Gana la más repetida; vale si tiene >= 2 lecturas o alguna lectura con confianza >= 0.80.
-    Devuelve {"placa", "votos", "confianza", "categoria", "ejes"}.
+    Devuelve {"placa", "votos", "confianza", "categoria", "ejes", "pasajeros"}.
     """
     ahora = ahora or timezone.now()
     grupos = defaultdict(list)
@@ -36,17 +35,26 @@ def votar(caseta, ahora=None):
     mejor = max(l.confianza or 0 for l in lecturas)
     if len(lecturas) < MIN_VOTOS and mejor < CONFIANZA_SOLA:
         return None
-    # Categoría (M2): la más repetida entre las lecturas de la placa ganadora; ejes (M3) solo si llegaron.
+    # Categoría (M2): la más repetida entre las lecturas de la placa ganadora; ejes (M3) y pasajeros (M4): el
+    # valor más repetido entre las lecturas que los traen (a igualdad, el mayor). Nunca se inventan.
     votos_cat = Counter(l.categoria for l in lecturas if l.categoria)
     categoria = votos_cat.most_common(1)[0][0] if votos_cat else ""
-    con_ejes = next((l for l in lecturas if l.categoria == categoria and l.ejes), None) if categoria else None
+    de_categoria = [l for l in lecturas if l.categoria == categoria] if categoria else lecturas
     return {
         "placa": placa,
         "votos": len(lecturas),
         "confianza": mejor or None,
         "categoria": categoria,
-        "ejes": con_ejes.ejes if con_ejes else None,
+        "ejes": _moda(l.ejes for l in de_categoria),
+        "pasajeros": _moda(l.pasajeros for l in lecturas),
     }
+
+
+def _moda(valores):
+    conteo = Counter(v for v in valores if v is not None)
+    if not conteo:
+        return None
+    return max(conteo.items(), key=lambda kv: (kv[1], kv[0]))[0]
 
 
 def votos_de(caseta, placa, ahora=None):
@@ -61,11 +69,26 @@ def limpiar_lecturas_viejas():
 
 # --- Registro del paso ---------------------------------------------------------------------------
 
-def _tarifa(categoria, ejes):
-    """Tarifa de la categoría con sus ejes; si los ejes no se conocen (sin M3), con EJES_POR_DEFECTO."""
+def tarifa_de(categoria, ejes):
+    """Tarifa (objeto) de la categoría con los ejes detectados.
+
+    Sin ejes (M3 no los dio): la de menos ejes de esa categoría. Con ejes que no tienen tarifa propia: la mayor de
+    esa categoría que no supere los ejes detectados (y si todas los superan, la mínima)."""
     if not categoria:
         return None
-    t = Tarifa.objects.filter(categoria=categoria, ejes=ejes or EJES_POR_DEFECTO).first()
+    tarifas = Tarifa.objects.filter(categoria=categoria).order_by("ejes")
+    if ejes:
+        exacta = tarifas.filter(ejes=ejes).first()
+        if exacta:
+            return exacta
+        menor = tarifas.filter(ejes__lt=ejes).order_by("-ejes").first()
+        if menor:
+            return menor
+    return tarifas.first()
+
+
+def _tarifa(categoria, ejes):
+    t = tarifa_de(categoria, ejes)
     return t.monto if t else None
 
 
@@ -75,12 +98,13 @@ def paso_reciente(caseta, placa, ahora=None):
                                created_at__gte=ahora - ANTIDUPLICADO).first()
 
 
-def registrar_paso(caseta_id, placa, usuario=None, confianza=None, texto_leido=None, categoria="", ejes=None):
+def registrar_paso(caseta_id, placa, usuario=None, confianza=None, texto_leido=None, categoria="", ejes=None,
+                   pasajeros=None):
     """Registra el paso y cobra. Devuelve (paso, duplicado, info).
 
-    Categoría: la detectada por M2 si llegó y tiene tarifa (con 2 ejes por defecto mientras no exista M3); si no,
-    la del vehículo registrado; si no está registrado ni se detectó, "desconocida" y monto 0. Los ejes que no
-    detectó M3 quedan en null en el paso: nunca se inventan.
+    Tarifa = categoría detectada (M2) + ejes detectados (M3); si los ejes no llegaron, la mínima de esa categoría.
+    Si no se detectó categoría, la del vehículo registrado; si no está registrado ni se detectó, "desconocida" y
+    monto 0. Los ejes y pasajeros que no se detectaron quedan en null en el paso: nunca se inventan.
     """
     with transaction.atomic():
         caseta = Caseta.objects.select_for_update().get(pk=caseta_id)  # serializa los pasos de la caseta
@@ -115,11 +139,13 @@ def registrar_paso(caseta_id, placa, usuario=None, confianza=None, texto_leido=N
         paso = Paso.objects.create(
             placa_leida=(texto_leido or placa)[:20], placa_normalizada=placa, confianza_ocr=confianza,
             categoria_detectada=categoria or "", ejes_detectados=ejes, monto=monto, caseta=caseta,
-            usuario=usuario, estado=estado,
+            usuario=usuario, estado=estado, pasajeros=pasajeros,
         )
         if alerta:
             Alerta.objects.create(paso=paso, tipo=alerta)
-    return paso, False, {"fuente_categoria": fuente, "tarifa": monto_tarifa, "nota": nota,
+    t = tarifa_de(categoria, ejes)
+    return paso, False, {"fuente_categoria": fuente, "tarifa": monto_tarifa, "ejes_tarifa": t.ejes if t else None,
+                         "nota": nota,
                          "saldo": vehiculo.saldo if vehiculo else None}
 
 
@@ -136,6 +162,8 @@ def paso_a_dict(paso, info=None):
         "categoria": paso.categoria_detectada or "desconocida",
         "categoria_texto": paso.get_categoria_detectada_display() or "Desconocida",
         "ejes": paso.ejes_detectados,
+        "ejes_tarifa": info.get("ejes_tarifa") or _ejes_tarifa(paso),
+        "pasajeros": paso.pasajeros,
         "tarifa": str(tarifa) if tarifa is not None else None,
         "monto_cobrado": str(paso.monto),
         "saldo": str(info["saldo"]) if info.get("saldo") is not None else None,
@@ -146,6 +174,11 @@ def paso_a_dict(paso, info=None):
         "imagen_url": paso.imagen_url or None,
         "created_at": paso.created_at.isoformat(),
     }
+
+
+def _ejes_tarifa(paso):
+    t = tarifa_de(paso.categoria_detectada, paso.ejes_detectados)
+    return t.ejes if t else None
 
 
 # --- Consulta ------------------------------------------------------------------------------------
@@ -189,6 +222,9 @@ def consultar_placa(texto):
             "fecha": local.strftime("%d/%m/%Y"), "hora": local.strftime("%H:%M:%S"),
             "created_at": ultimo.created_at.isoformat(), "estado": ultimo.estado,
             "estado_texto": ultimo.get_estado_display(), "monto": str(ultimo.monto),
+            "categoria": ultimo.categoria_detectada or None,
+            "categoria_texto": ultimo.get_categoria_detectada_display() or None,
+            "ejes": ultimo.ejes_detectados, "pasajeros": ultimo.pasajeros,
             "imagen_url": ultimo.imagen_url or None,
         }
     return datos

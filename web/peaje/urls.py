@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import api, views
+from . import api, pwa, views
 
 urlpatterns = [
     path("", views.panel, name="panel"),
@@ -29,4 +29,9 @@ urlpatterns = [
     path("api/v1/placas/leer", api.placa_leer, name="api_placa_leer"),
     path("api/v1/agente/chat", api.agente_chat, name="api_agente_chat"),
     path("estado", views.estado, name="estado"),
+    # PWA / APK (TWA): públicos
+    path("manifest.webmanifest", pwa.manifest, name="manifest"),
+    path("service-worker.js", pwa.service_worker, name="service_worker"),
+    path("offline", pwa.offline, name="offline"),
+    path(".well-known/assetlinks.json", pwa.assetlinks, name="assetlinks"),
 ]

@@ -132,6 +132,9 @@ GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "")  # vacío = el "flash" por def
 # Si el principal está saturado o falla; uno o varios separados por comas (vacío = respaldo por defecto del agente).
 GEMINI_MODEL_RESPALDO = os.environ.get("GEMINI_MODEL_RESPALDO", "")
 
+# --- APK (PWABuilder / Trusted Web Activity): Digital Asset Links que sirve /.well-known/assetlinks.json ---
+ASSETLINKS_JSON = os.environ.get("ASSETLINKS_JSON", "")
+
 # --- Capturas de los pasos: Cloudinary si CLOUDINARY_URL (cloudinary://key:secret@nube); si no, disco local. ---
 CLOUDINARY_URL = os.environ.get("CLOUDINARY_URL", "")
 MEDIA_ROOT = BASE_DIR / "media"

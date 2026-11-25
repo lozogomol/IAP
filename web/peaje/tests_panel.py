@@ -385,7 +385,7 @@ class DisenoTests(TestCase):
         for animacion in ("@keyframes nebulosa", "@keyframes titilar", "prefers-reduced-motion"):
             self.assertIn(animacion, css)
         self.assertIn(".galaxia, .boton.primario { position: relative;", css)
-        permitidos = {"base.html", "login.html", "panel.html"}
+        permitidos = {"base.html", "login.html", "panel.html", "offline.html"}  # offline: misma cabecera que el login
         for archivo in (Path(settings.BASE_DIR) / "peaje" / "templates").rglob("*.html"):
             if "galaxia" in archivo.read_text(encoding="utf-8"):
                 self.assertIn(archivo.name, permitidos)

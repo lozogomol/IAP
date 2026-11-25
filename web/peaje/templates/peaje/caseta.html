@@ -93,6 +93,10 @@
   function mensajeError(e) {
     switch (e && e.name) {
       case "NotAllowedError": case "SecurityError":
+        // Dentro de la app instalada (PWA / APK) no hay barra de direcciones ni candado.
+        if (window.matchMedia("(display-mode: standalone)").matches) {
+          return "No hay permiso para usar la cámara. Actívalo en Ajustes del teléfono > Apps > Peaje IAP (o Chrome) > Permisos > Cámara y vuelve a intentar.";
+        }
         return "No hay permiso para usar la cámara. Actívalo en la configuración del navegador (ícono del candado) y vuelve a intentar.";
       case "NotFoundError": case "OverconstrainedError":
         return "No se encontró una cámara en este dispositivo.";

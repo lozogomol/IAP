@@ -1,0 +1,24 @@
+{% load static %}<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#050b1e">
+  <title>Sin conexión · Peaje IAP</title>
+  <link rel="stylesheet" href="{% static 'css/iap.css' %}">
+</head>
+<body class="pagina-acceso">
+  <main class="contenedor">
+    <section class="acceso" aria-labelledby="titulo-offline">
+      <div class="acceso-cab galaxia"><span class="estrellas" aria-hidden="true"></span>
+        {% include "peaje/_icono.html" %}
+        <h1 id="titulo-offline">Peaje IAP</h1>
+        <p>Sin conexión. Revisa tu internet.</p>
+      </div>
+      <div class="acceso-cuerpo">
+        <button class="boton primario bloque" type="button" onclick="location.reload()">Reintentar</button>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

@@ -4,6 +4,13 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#050b1e">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Peaje IAP">
+  <meta name="description" content="Sistema inteligente de control de peaje">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" type="image/png" sizes="192x192" href="{% static 'iconos/icono-192.png' %}">
+  <link rel="apple-touch-icon" href="{% static 'iconos/apple-touch-icon.png' %}">
   <title>{% block titulo %}Peaje IAP{% endblock %} · Peaje IAP</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -226,6 +233,14 @@
     })();
   </script>
   {% endif %}
+  <script>
+    // PWA: service worker en la raíz (solo cachea estáticos; nunca la API, el login ni páginas con datos).
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", function () {
+        navigator.serviceWorker.register("/service-worker.js", { scope: "/" }).catch(function () {});
+      });
+    }
+  </script>
   {% block scripts %}{% endblock %}
 </body>
 </html>

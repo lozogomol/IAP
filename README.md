@@ -15,7 +15,82 @@ Laboratorio Final de Hito · UNIFRANZ
 /web             aplicación web Django: panel, API, agente
 /movil           PWA empaquetada como APK
 /docs            documentación de la API y diagramas
+/scripts         utilidades (diagnostico.py: diagnóstico del entorno)
 ```
+
+## Entornos
+Cada servicio tiene su propio entorno con versiones fijadas (`==`) en `requirements.txt` y un `environment.yml` de conda (Python 3.13.7):
+
+| Servicio | Carpeta | Entorno conda |
+|---|---|---|
+| Web (Django) | `web/` | `iap-web` |
+| Servidor de inferencia (FastAPI) | `inferencia/servidor/` | `iap-inferencia` |
+| Entrenamiento (Ultralytics + Roboflow) | `entrenamiento/` | `iap-entrenamiento` |
+
+> Las carpetas `venv/` y `.venv/` **no se suben** al repositorio (están en `.gitignore`); cada quien las recrea con estas instrucciones.
+
+### Web
+```bash
+cd web
+# venv — Windows
+python -m venv venv
+venv\Scripts\activate
+# venv — Linux/macOS
+python3 -m venv venv
+source venv/bin/activate
+
+pip install -r requirements.txt
+
+# Alternativa con conda/mamba
+conda env create -f environment.yml      # o: mamba env create -f environment.yml
+conda activate iap-web
+
+# Diagnóstico
+python ../scripts/diagnostico.py
+```
+
+### Servidor de inferencia
+```bash
+cd inferencia/servidor
+# venv — Windows
+python -m venv venv
+venv\Scripts\activate
+# venv — Linux/macOS
+python3 -m venv venv
+source venv/bin/activate
+
+pip install -r requirements.txt
+
+# Alternativa con conda/mamba
+conda env create -f environment.yml
+conda activate iap-inferencia
+
+# Diagnóstico (Windows: python ..\..\scripts\diagnostico.py)
+python ../../scripts/diagnostico.py
+```
+
+### Entrenamiento
+```bash
+cd entrenamiento
+# venv — Windows
+python -m venv venv
+venv\Scripts\activate
+# venv — Linux/macOS
+python3 -m venv venv
+source venv/bin/activate
+
+pip install -r requirements.txt
+
+# Alternativa con conda/mamba
+conda env create -f environment.yml
+conda activate iap-entrenamiento
+
+# Diagnóstico
+python ../scripts/diagnostico.py
+```
+
+### Diagnóstico (`scripts/diagnostico.py`)
+Imprime la plataforma (local, Colab, Render o RunPod), la versión y ruta de Python, `Entorno virtual activo: True/False` (venv o conda) y las versiones de torch (con CUDA y GPU), ultralytics, onnxruntime, OpenCV, numpy, Django y FastAPI; si una librería no está instalada lo indica sin fallar. Guarda la salida en `diagnostico_<plataforma>.json` en la carpeta actual (ignorado por git). En Colab se ejecuta desde la celda «Diagnóstico del entorno» de `inferencia/colab_servidor_iap.ipynb`.
 
 ## Enlaces
 - Web: https://iap-peaje.onrender.com

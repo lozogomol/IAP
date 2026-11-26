@@ -1,0 +1,3 @@
+# Entrenamiento IAP (Python 3.13): YOLO de Ultralytics + descarga de datasets desde Roboflow
+ultralytics==8.4.218
+roboflow==1.7.4

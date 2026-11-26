@@ -29,3 +29,6 @@ runs/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Salidas locales de scripts/diagnostico.py
+diagnostico_*.json
